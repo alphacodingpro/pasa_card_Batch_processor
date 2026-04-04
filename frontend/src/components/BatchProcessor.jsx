@@ -115,20 +115,38 @@ export default function BatchProcessor({ queue, setQueue }) {
   const closeEditor = ()     => setEditingItem(null);
 
   const getCroppedDataUrl = () => {
-    if (!completedCrop?.width || !imgRef.current) return editingItem.dataUrl;
+    let targetCrop = completedCrop;
+    // Fallback to initial % crop if user didn't adjust handles
+    if (!targetCrop?.width && crop && imgRef.current) {
+        targetCrop = {
+          x: (crop.x * imgRef.current.width) / 100,
+          y: (crop.y * imgRef.current.height) / 100,
+          width: (crop.width * imgRef.current.width) / 100,
+          height: (crop.height * imgRef.current.height) / 100,
+        };
+    }
+
+    if (!targetCrop?.width || !imgRef.current) return editingItem.dataUrl;
+    
     const image  = imgRef.current;
     const canvas = document.createElement('canvas');
     const sx = image.naturalWidth  / image.width;
     const sy = image.naturalHeight / image.height;
-    canvas.width  = completedCrop.width  * sx;
-    canvas.height = completedCrop.height * sy;
-    canvas.getContext('2d').drawImage(
+    
+    canvas.width  = targetCrop.width  * sx;
+    canvas.height = targetCrop.height * sy;
+    
+    const ctx = canvas.getContext('2d');
+    // Massive contrast boost so 1D barcodes become ultra crisp black/white
+    ctx.filter = 'grayscale(100%) contrast(1.8) brightness(1.1)';
+    
+    ctx.drawImage(
       image,
-      completedCrop.x * sx, completedCrop.y * sy,
+      targetCrop.x * sx, targetCrop.y * sy,
       canvas.width, canvas.height,
       0, 0, canvas.width, canvas.height
     );
-    return canvas.toDataURL('image/jpeg', 0.9);
+    return canvas.toDataURL('image/jpeg', 1.0);
   };
 
   const handleManualScan = async () => {
