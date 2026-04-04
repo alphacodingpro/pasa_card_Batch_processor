@@ -72,7 +72,9 @@ export default function BatchProcessor({ queue, setQueue }) {
         }
       }
     } catch (err) {
-      updateQueueItem(id, { status: 'error', error: 'Network Error: Check Server connection.' });
+      console.error(err);
+      const urlInfo = `(URL: ${API_BASE || 'local'})`;
+      updateQueueItem(id, { status: 'error', error: `❌ Network Error: Check Server connection. ${urlInfo}` });
     }
   };
 

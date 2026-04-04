@@ -21,11 +21,11 @@ services:
       - key: SERPAPI_KEY
         sync: false
 
-  - type: web
+  - type: static
     name: psa-frontend
     env: static
     buildCommand: "cd frontend && npm install && npm run build"
-    staticPublishPath: "frontend/dist"
+    publishPath: "frontend/dist"
     envVars:
       - key: VITE_API_URL
         fromService:

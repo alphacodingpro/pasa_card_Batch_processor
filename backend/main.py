@@ -39,6 +39,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/")
+def read_root():
+    return {"status": "ok", "message": "PSA Scanner API is live"}
+
 def get_db():
     db = SessionLocal()
     try:
