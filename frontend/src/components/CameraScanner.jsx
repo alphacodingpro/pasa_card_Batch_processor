@@ -27,13 +27,14 @@ export default function CameraScanner({ onScan, active }) {
       return;
     }
 
-    // Hints: focus on Code128 (PSA barcode type) for faster, more accurate scanning
     const hints = new Map();
     hints.set(DecodeHintType.POSSIBLE_FORMATS, [
       BarcodeFormat.CODE_128,
       BarcodeFormat.CODE_39,
       BarcodeFormat.EAN_13,
       BarcodeFormat.UPC_A,
+      BarcodeFormat.QR_CODE,
+      BarcodeFormat.DATA_MATRIX,
     ]);
     hints.set(DecodeHintType.TRY_HARDER, true);
 
@@ -93,7 +94,7 @@ export default function CameraScanner({ onScan, active }) {
              // Native Hardware Acceleration - INSTANT detection on supported devices (Chrome Android, iOS 17 Safari)
              if ('BarcodeDetector' in window) {
                  try {
-                     const detector = new window.BarcodeDetector({ formats: ['code_128', 'code_39', 'ean_13', 'upc_a'] });
+                     const detector = new window.BarcodeDetector({ formats: ['qr_code', 'data_matrix', 'code_128', 'code_39', 'ean_13', 'upc_a'] });
                      const barcodes = await detector.detect(videoRef.current);
                      if (barcodes && barcodes.length > 0) {
                          const text = barcodes[0].rawValue;

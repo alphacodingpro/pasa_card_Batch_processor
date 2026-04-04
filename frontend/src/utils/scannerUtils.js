@@ -50,7 +50,7 @@ export async function advancedScanImage(imageElement) {
   if ('BarcodeDetector' in window) {
     try {
       const detector = new window.BarcodeDetector({
-        formats: ['code_128', 'code_39', 'ean_13', 'upc_a', 'ean_8', 'upc_e'],
+        formats: ['qr_code', 'data_matrix', 'code_128', 'code_39', 'ean_13', 'upc_a', 'ean_8', 'upc_e'],
       });
       const hits = await detector.detect(imageElement);
       if (hits && hits.length > 0) {
