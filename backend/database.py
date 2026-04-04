@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Get the PostgreSQL connection URL from the environment variables
-SQLALCHEMY_DATABASE_URL = os.getenv("POSTGRES_URL", "postgresql://mac@localhost/postgres")
+SQLALCHEMY_DATABASE_URL = os.getenv("POSTGRES_URL", "postgresql://mac@localhost/postgres").strip()
 
 # Fix: Render gives internal URL (dpg-xxx-a) - convert to external URL for cross-region access
 if SQLALCHEMY_DATABASE_URL.startswith("postgres://"):
