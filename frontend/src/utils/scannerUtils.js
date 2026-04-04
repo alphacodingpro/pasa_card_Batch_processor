@@ -116,9 +116,10 @@ export async function advancedScanImage(imageElement) {
   const regions = isCroppedStrip
     ? [{ name: 'Full (Crop)', rx: 0, ry: 0, rw: W, rh: H }]
     : [
-        { name: 'Top 40%',  rx: 0, ry: 0,       rw: W, rh: H * 0.40 },  // ← PSA label lives here
-        { name: 'Full',     rx: 0, ry: 0,       rw: W, rh: H        },
-        { name: 'Bottom 40%', rx: 0, ry: H * 0.60, rw: W, rh: H * 0.40 }, // upside-down cards
+        { name: 'PSA Label Zone', rx: 0, ry: H * 0.05, rw: W, rh: H * 0.45 }, // 5%-50% — where label sits
+        { name: 'Top 40%',        rx: 0, ry: 0,        rw: W, rh: H * 0.40 }, // in case label is at very top
+        { name: 'Full',           rx: 0, ry: 0,        rw: W, rh: H        },
+        { name: 'Bottom 40%',     rx: 0, ry: H * 0.60, rw: W, rh: H * 0.40 }, // upside-down cards
       ];
 
   // contrast filter: skip for already-cropped strips (avoid double-processing)
