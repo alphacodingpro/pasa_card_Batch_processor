@@ -310,7 +310,7 @@ function QueueCard({ item, onOpenEditor, onProcessAsIs, onImageClick, onCopy }) 
         <div style={{ borderTop: '1px solid var(--glass-border)', padding: '12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
 
           {/* PSA Section */}
-          <Section label="📦 PSA Data">
+          <Section label="PSA">
             {/* Title + copy */}
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
               <span style={{ color: '#fff', fontWeight: 600, fontSize: '0.9rem', flex: 1 }}>{psa.title}</span>
@@ -325,7 +325,7 @@ function QueueCard({ item, onOpenEditor, onProcessAsIs, onImageClick, onCopy }) 
             <Row label="Estimate"     value={psa.psa_estimate} />
             <Row label="Last Sale"    value={psa.latest_sale_price && `${psa.latest_sale_price}${psa.latest_sale_date ? ' — ' + psa.latest_sale_date : ''}`} />
             {psa.psa_url && (
-              <a href={psa.psa_url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', fontSize: '0.8rem', marginTop: '2px' }}>
+              <a href={psa.psa_url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', fontSize: '0.8rem', marginTop: '2px', display: 'block' }}>
                 View on PSA ↗
               </a>
             )}
@@ -333,7 +333,7 @@ function QueueCard({ item, onOpenEditor, onProcessAsIs, onImageClick, onCopy }) 
 
           {/* PriceCharting Section */}
           {pc ? (
-            <Section label="💰 PriceCharting">
+            <Section label="PriceCharting">
               <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '6px' }}>
                 {pc.image_url && (
                   <img src={pc.image_url} style={{ width: '50px', height: '50px', objectFit: 'contain', borderRadius: '6px', cursor: 'pointer' }} onClick={() => onImageClick(pc.image_url)} />
@@ -345,27 +345,29 @@ function QueueCard({ item, onOpenEditor, onProcessAsIs, onImageClick, onCopy }) 
                 <PriceBox label="PSA 10" data={pc.psa10_summary} color="rgba(74,222,128,0.1)"  />
               </div>
               {pc.pricecharting_url && (
-                <a href={pc.pricecharting_url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)', fontSize: '0.8rem', marginTop: '4px', display: 'block' }}>
-                  View on PriceCharting ↗
+                <a href={pc.pricecharting_url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', fontSize: '0.8rem', marginTop: '6px', display: 'block' }}>
+                  PriceCharting
                 </a>
               )}
             </Section>
           ) : (
             isPartial && (
-              <Section label="💰 PriceCharting">
+              <Section label="PriceCharting">
                 <span style={{ color: '#aaa', fontSize: '0.85rem' }}>⚠️ No PriceCharting data found for this card.</span>
               </Section>
             )
           )}
 
-          {/* eBay Section */}
+          {/* Extra eBay Links (rendered under PriceCharting per spec) */}
           {eb && (
-            <Section label="🛒 eBay">
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <EbayBtn href={eb.listings_url} label="Live Listings" />
-                <EbayBtn href={eb.sold_url}     label="Sold Prices" color="rgba(251,191,36,0.12)" />
-              </div>
-            </Section>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', padding: '0 12px' }}>
+              <a href={eb.listings_url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', fontSize: '0.85rem', textDecoration: 'underline' }}>
+                PSA: Ebay Listings (ALL GRADES)
+              </a>
+              <a href={eb.sold_url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', fontSize: '0.85rem', textDecoration: 'underline' }}>
+                PSA: Ebay SOLD (ALL GRADES)
+              </a>
+            </div>
           )}
         </div>
       )}
