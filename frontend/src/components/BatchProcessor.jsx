@@ -105,8 +105,8 @@ export default function BatchProcessor({ queue, setQueue }) {
   // ── Crop editor ────────────────────────────────────────────
   const openEditor  = (item) => { 
     setEditingItem(item); 
-    // Auto-select the top PSA barcode area for 1-click convenience
-    setCrop({ unit: '%', x: 5, y: 2, width: 90, height: 15 }); 
+    // Auto-select the top half of the image as requested
+    setCrop({ unit: '%', x: 0, y: 0, width: 100, height: 50 }); 
     setCompletedCrop(null); 
     setScanStatus(''); 
   };
