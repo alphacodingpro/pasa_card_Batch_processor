@@ -28,7 +28,12 @@ export default function BatchProcessor({ queue, setQueue }) {
 
   // Determine API base URL (uses Vite proxy locally, and fully qualified URL in production)
   const renderHost = import.meta.env.VITE_API_URL || '';
-  const API_BASE = renderHost ? (renderHost.startsWith('http') ? renderHost : `https://${renderHost}`) : '';
+  let fullUrl = renderHost;
+  // If Render only provides the internal host (no dot), append the public domain
+  if (renderHost && !renderHost.includes('.') && !renderHost.includes('localhost')) {
+    fullUrl = `${renderHost}.onrender.com`;
+  }
+  const API_BASE = fullUrl ? (fullUrl.startsWith('http') ? fullUrl : `https://${fullUrl}`) : '';
 
   // ── Backend pipeline ───────────────────────────────────────
   const sendToBackend = async (id, barcode) => {
