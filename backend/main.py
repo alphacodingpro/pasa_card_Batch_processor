@@ -13,7 +13,22 @@ import httpx
 from database import SessionLocal, engine, Base
 from models import CardProcess
 
-Base.metadata.create_all(bind=engine)
+import time
+from sqlalchemy.exc import OperationalError
+
+# Robust startup loop to wait for Render Database internal DNS to propagate
+retries = 5
+while retries > 0:
+    try:
+        Base.metadata.create_all(bind=engine)
+        print("Successfully connected to the database and created tables.")
+        break
+    except OperationalError as e:
+        print(f"Database unavailable, waiting for DNS... ({retries} retries left)")
+        retries -= 1
+        time.sleep(4)
+else:
+    print("Failed to connect to the database after multiple retries.")
 load_dotenv()
 
 app = FastAPI(title="PSA Scanner Backend")
