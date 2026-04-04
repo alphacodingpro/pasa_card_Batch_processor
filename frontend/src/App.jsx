@@ -1,12 +1,38 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import CameraScanner from './components/CameraScanner';
 import ImageUpload from './components/ImageUpload';
 import BatchProcessor from './components/BatchProcessor';
 import './App.css';
 
 function App() {
-  const [mode, setMode] = useState(null); // 'camera', 'upload', 'batch'
-  const [queue, setQueue] = useState([]);
+  const [mode, setMode] = useState(() => {
+    return localStorage.getItem('scanMode') || null;
+  }); // 'camera', 'upload', 'batch'
+
+  const [queue, setQueue] = useState(() => {
+    const saved = localStorage.getItem('scanQueue');
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) { return []; }
+    }
+    return [];
+  });
+
+  // Keep localStorage in sync
+  useEffect(() => {
+    try {
+      localStorage.setItem('scanQueue', JSON.stringify(queue));
+    } catch (e) {
+      console.warn('Queue too large for localStorage', e);
+    }
+  }, [queue]);
+
+  useEffect(() => {
+    if (mode) {
+      localStorage.setItem('scanMode', mode);
+    } else {
+      localStorage.removeItem('scanMode');
+    }
+  }, [mode]);
 
   const handleImagesQueued = (processedFiles) => {
     setQueue(prev => [...prev, ...processedFiles]);

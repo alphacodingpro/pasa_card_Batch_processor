@@ -98,9 +98,7 @@ export default function BatchProcessor({ queue, setQueue }) {
       updateQueueItem(item.id, { status: 'process_backend', barcode: result });
       await sendToBackend(item.id, result);
     } else {
-      updateQueueItem(item.id, { status: 'error', error: 'Barcode not found — try cropping.' });
-      // Show crop options automatically when image scanning fails
-      openEditor(item);
+      updateQueueItem(item.id, { status: 'error', error: 'Barcode not found. Please scan manually.' });
     }
   };
 
