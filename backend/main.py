@@ -16,32 +16,44 @@ from models import CardProcess
 import time
 from sqlalchemy.exc import OperationalError
 
-# Robust startup loop to wait for Render Database internal DNS to propagate
-retries = 5
-while retries > 0:
-    try:
-        Base.metadata.create_all(bind=engine)
-        print("Successfully connected to the database and created tables.")
-        break
-    except OperationalError as e:
-        print(f"Database unavailable, waiting for DNS... ({retries} retries left)")
-        retries -= 1
-        time.sleep(4)
-else:
-    print("Failed to connect to the database after multiple retries.")
+# Database initialization is handled in the @app.on_event("startup") below.
 load_dotenv()
 
 app = FastAPI(title="PSA Scanner Backend")
+
+# 1. Broad CORS for production flexibility
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# 2. Async Startup to avoid blocking health checks
+@app.on_event("startup")
+async def startup_event():
+    # Run DB init in background to not block the server from being "Live"
+    def init_db():
+        retries = 10
+        while retries > 0:
+            try:
+                from database import engine, Base
+                from models import CardProcess
+                Base.metadata.create_all(bind=engine)
+                print("✅ Database connected and tables created.")
+                break
+            except Exception as e:
+                print(f"⏳ Waiting for DB... ({retries} left) Error: {e}")
+                retries -= 1
+                time.sleep(5)
+    
+    import threading
+    threading.Thread(target=init_db, daemon=True).start()
+
 @app.get("/")
 def read_root():
-    return {"status": "ok", "message": "PSA Scanner API is live"}
+    return {"status": "ok", "message": "PSA Scanner API is live", "timestamp": time.time()}
 
 def get_db():
     db = SessionLocal()
