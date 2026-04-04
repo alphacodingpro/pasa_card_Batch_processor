@@ -13,6 +13,21 @@ function App() {
     setMode('batch');
   };
 
+  const handleCameraScan = (barcode) => {
+    const newItem = {
+      id: Math.random().toString(36).substr(2, 9),
+      file: null,
+      dataUrl: null, // No image preview for live camera scans
+      file_name: `Camera Scan (${barcode})`,
+      status: 'camera_scanned', 
+      barcode: barcode,
+      data: null,
+      error: null
+    };
+    setQueue(prev => [...prev, newItem]);
+    setMode('batch'); // Close camera and show processing mode immediately
+  };
+
   const reset = () => {
     setMode(null);
     setQueue([]);
@@ -51,7 +66,7 @@ function App() {
         )}
 
         {mode === 'camera' && queue.length === 0 && (
-          <CameraScanner onScan={(code) => alert('Camera: ' + code)} active={true} />
+          <CameraScanner onScan={handleCameraScan} active={true} />
         )}
       </main>
 

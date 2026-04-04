@@ -17,6 +17,10 @@ export default function BatchProcessor({ queue, setQueue }) {
       queue.forEach(item => {
         if (item.status === 'pending') {
           processScan(item);
+        } else if (item.status === 'camera_scanned') {
+          // Immediately send to backend, skipping local JS image scan
+          updateQueueItem(item.id, { status: 'process_backend' });
+          sendToBackend(item.id, item.barcode);
         }
       });
     }

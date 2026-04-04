@@ -90,7 +90,23 @@ export default function CameraScanner({ onScan, active }) {
           }
 
           try {
-             // ZXing needs a smaller, optimized frame
+             // Native Hardware Acceleration - INSTANT detection on supported devices (Chrome Android, iOS 17 Safari)
+             if ('BarcodeDetector' in window) {
+                 try {
+                     const detector = new window.BarcodeDetector({ formats: ['code_128', 'code_39', 'ean_13', 'upc_a'] });
+                     const barcodes = await detector.detect(videoRef.current);
+                     if (barcodes && barcodes.length > 0) {
+                         const text = barcodes[0].rawValue;
+                         if (text) {
+                             scanning = false;
+                             onScan(text);
+                             return;
+                         }
+                     }
+                 } catch(e) {} // Fallback to JS ZXing if native fails or camera is busy
+             }
+
+             // ZXing JS Fallback needs a smaller, optimized frame
              const vw = videoRef.current.videoWidth;
              const vh = videoRef.current.videoHeight;
              
