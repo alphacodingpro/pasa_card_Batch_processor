@@ -1,0 +1,36 @@
+databases:
+  - name: psa-card-db
+    plan: free
+    region: ohio
+
+services:
+  - type: web
+    name: psa-backend
+    env: python
+    region: ohio
+    plan: free
+    buildCommand: "cd backend && pip install -r requirements.txt"
+    startCommand: "cd backend && gunicorn main:app -w 4 -k uvicorn.workers.UvicornWorker"
+    envVars:
+      - key: POSTGRES_URL
+        fromDatabase:
+          name: psa-card-db
+          property: connectionString
+      - key: FIRECRAWL_API_KEY
+        sync: false
+      - key: SERPAPI_KEY
+        sync: false
+
+  - type: web
+    name: psa-frontend
+    env: static
+    region: ohio
+    plan: free
+    buildCommand: "cd frontend && npm install && npm run build"
+    publishPath: "frontend/dist"
+    envVars:
+      - key: VITE_API_URL
+        fromService:
+          type: web
+          name: psa-backend
+          property: hostport
