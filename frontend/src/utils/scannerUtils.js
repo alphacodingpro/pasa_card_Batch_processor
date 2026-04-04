@@ -80,19 +80,13 @@ export async function advancedScanImage(imageElement) {
   regions.push({ name: 'Full Image', x: 0, y: 0, w: 1, h: 1 });
 
   if (!isCroppedStrip) {
-    // High probability regions (Standard upright PSA)
-    regions.push({ name: 'PSA Top Strip 15%', x: 0, y: 0, w: 1, h: 0.15 });
-    regions.push({ name: 'PSA Top Strip 25%', x: 0, y: 0, w: 1, h: 0.25 });
-    
-    // Upside-down PSA cards
-    regions.push({ name: 'PSA Bottom Strip 15%', x: 0, y: 0.85, w: 1, h: 0.15 });
-    regions.push({ name: 'PSA Bottom Strip 25%', x: 0, y: 0.75, w: 1, h: 0.25 });
-    
-    // Half splits to catch sideways photos
+    // Priority 1: Top 50% of the image (PSA labels are always at the top)
     regions.push({ name: 'Top Half', x: 0, y: 0, w: 1, h: 0.5 });
-    regions.push({ name: 'Left Half', x: 0, y: 0, w: 0.5, h: 1 });
-    regions.push({ name: 'Right Half', x: 0.5, y: 0, w: 0.5, h: 1 });
-    regions.push({ name: 'Bottom Half', x: 0, y: 0.5, w: 1, h: 0.5 });
+    // Priority 2: Full image fallback
+    regions.push({ name: 'Full Image', x: 0, y: 0, w: 1, h: 1 });
+  } else {
+    // Already cropped, just scan the whole thing
+    regions.push({ name: 'Cropped Strip', x: 0, y: 0, w: 1, h: 1 });
   }
 
   const canvas = document.createElement('canvas');
@@ -106,20 +100,19 @@ export async function advancedScanImage(imageElement) {
     const rw = W * region.w;
     const rh = H * region.h;
 
-    const scale = Math.min(1, 1200 / Math.max(rw, rh));
+    const scale = Math.min(1, 1500 / Math.max(rw, rh)); // Increased res for better small barcode detection
     const sw = Math.round(rw * scale);
     const sh = Math.round(rh * scale);
 
     const filters = [
       'none',
-      isCroppedStrip ? 'none' : 'grayscale(100%) contrast(1.5) brightness(1.1)',
+      'grayscale(100%) contrast(1.6) brightness(1.1)',
     ];
 
+    // Testing only 0° (portrait) and 90° (sideways) as requested (no 180/270)
     const rotations = [
        { name: '0°', angle: 0, w: sw, h: sh },
-       { name: '90°', angle: Math.PI / 2, w: sh, h: sw },
-       { name: '180°', angle: Math.PI, w: sw, h: sh },
-       { name: '270°', angle: -Math.PI / 2, w: sh, h: sw }
+       { name: '90°', angle: Math.PI / 2, w: sh, h: sw }
     ];
 
     for (const filter of filters) {
@@ -140,7 +133,7 @@ export async function advancedScanImage(imageElement) {
           
           let res = await tryScanZxing(canvas);
           if (res) { 
-             console.log(`[Scanner ZX] Found in ${region.name} (${rot.name}):`, filter); 
+             console.log(`[Scanner] Found in ${region.name} (${rot.name}):`, filter); 
              return res; 
           }
        }
