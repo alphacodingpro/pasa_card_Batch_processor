@@ -74,14 +74,72 @@ export default function CameraScanner({ onScan, active }) {
           await videoRef.current.play();
         }
 
-        const controls = await reader.decodeFromStream(stream, videoRef.current, (result) => {
-          if (result) {
-            const text = result.getText();
-            if (text) onScan(text);
-          }
-        });
+        // Custom manual polling loop for robust 1D barcode detection
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        let scanning = true;
 
-        controlsRef.current = controls;
+        controlsRef.current = {
+            stop: () => { scanning = false; }
+        };
+
+        const scanFrame = async () => {
+          if (!scanning || !videoRef.current || videoRef.current.readyState !== videoRef.current.HAVE_ENOUGH_DATA) {
+             if (scanning) requestAnimationFrame(scanFrame);
+             return;
+          }
+
+          try {
+             // ZXing needs a smaller, optimized frame
+             const vw = videoRef.current.videoWidth;
+             const vh = videoRef.current.videoHeight;
+             
+             // Base scale
+             const scale = Math.min(800 / vw, 800 / vh) || 1;
+             const cw = vw * scale;
+             const ch = vh * scale;
+             
+             canvas.width = cw;
+             canvas.height = ch;
+             
+             // Pass 1: Normal Orientation (with contrast boost)
+             ctx.filter = 'grayscale(100%) contrast(1.5) brightness(1.1)';
+             ctx.drawImage(videoRef.current, 0, 0, cw, ch);
+             
+             let result = null;
+             try { result = await reader.decodeFromCanvas(canvas); } catch(e) {}
+             
+             // Pass 2: Rotated 90 Degrees (Critical for portrait-mode scanning of horizontal barcodes!)
+             if (!result) {
+                 canvas.width = ch;
+                 canvas.height = cw;
+                 ctx.setTransform(1, 0, 0, 1, 0, 0);
+                 ctx.translate(canvas.width / 2, canvas.height / 2);
+                 ctx.rotate(90 * Math.PI / 180);
+                 ctx.filter = 'grayscale(100%) contrast(1.5) brightness(1.1)';
+                 ctx.drawImage(videoRef.current, -cw / 2, -ch / 2, cw, ch);
+                 
+                 try { result = await reader.decodeFromCanvas(canvas); } catch(e) {}
+             }
+
+             if (result && result.getText()) {
+                 const text = result.getText();
+                 scanning = false; // Stop immediately
+                 onScan(text);
+                 return;
+             }
+          } catch(err) {
+             // Ignore frame errors
+          }
+
+          // Polling rate ~ 3 FPS to avoid freezing mobile UI
+          setTimeout(() => {
+              if (scanning) requestAnimationFrame(scanFrame);
+          }, 300);
+        };
+
+        requestAnimationFrame(scanFrame);
+
       } catch (e) {
         console.error('Camera error:', e);
         if (e.name === 'NotAllowedError') setError('Camera access denied. Please allow camera permissions.');
