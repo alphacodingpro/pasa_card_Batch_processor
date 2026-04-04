@@ -133,18 +133,29 @@ export default function BatchProcessor({ queue, setQueue }) {
     const sx = image.naturalWidth  / image.width;
     const sy = image.naturalHeight / image.height;
     
-    canvas.width  = targetCrop.width  * sx;
-    canvas.height = targetCrop.height * sy;
+    // Add 40px white padding on all sides so barcode has the required "quiet zone" for ZXing
+    const PADDING = 40;
+    const cropW = targetCrop.width * sx;
+    const cropH = targetCrop.height * sy;
+    
+    canvas.width  = cropW + (PADDING * 2);
+    canvas.height = cropH + (PADDING * 2);
     
     const ctx = canvas.getContext('2d');
-    // Massive contrast boost so 1D barcodes become ultra crisp black/white
-    ctx.filter = 'grayscale(100%) contrast(1.8) brightness(1.1)';
     
+    // 1. Fill canvas with solid white (quiet zone)
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // 2. Massive contrast & sharpen boost so 1D barcodes become ultra crisp black/white
+    ctx.filter = 'grayscale(100%) contrast(1.8) brightness(1.2)';
+    
+    // 3. Draw image in the center, leaving white border
     ctx.drawImage(
       image,
       targetCrop.x * sx, targetCrop.y * sy,
-      canvas.width, canvas.height,
-      0, 0, canvas.width, canvas.height
+      cropW, cropH,
+      PADDING, PADDING, cropW, cropH
     );
     return canvas.toDataURL('image/jpeg', 1.0);
   };

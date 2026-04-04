@@ -92,7 +92,7 @@ export async function advancedScanImage(imageElement) {
     canvas.height = sh;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     // Convert to grayscale and boost contrast to help weak barcodes
-    ctx.filter = 'grayscale(100%) contrast(1.5) brightness(1.1) sharpen(1)';
+    ctx.filter = 'grayscale(100%) contrast(1.5) brightness(1.1)';
     ctx.drawImage(imageElement, rx, ry, rw, rh, 0, 0, sw, sh);
     
     let res = await tryScanCanvas(canvas);
