@@ -200,7 +200,7 @@ export default function CameraScanner({ onScan, active }) {
             </button>
           </div>
           <p className="scanner-hint">
-            📌 PSA slab ke upar wale barcode par camera rakhein. Chhota barcode ho tou Flash button istamal karein.
+            📌 Point the camera at the barcode on the top of the PSA slab. Use the Flash button for small or dim barcodes.
           </p>
         </>
       )}
