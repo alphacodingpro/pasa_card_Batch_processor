@@ -56,6 +56,18 @@ export default function CameraScanner({ onScan, active }) {
         });
         streamRef.current = stream;
 
+        // Attempt to auto-zoom (2.5x) for tiny PSA barcodes
+        try {
+          const track = stream.getVideoTracks()[0];
+          const capabilities = track.getCapabilities();
+          if (capabilities.zoom) {
+            const zoomVal = Math.min(capabilities.zoom.max, Math.max(capabilities.zoom.min, 2.5));
+            await track.applyConstraints({ advanced: [{ zoom: zoomVal }] });
+          }
+        } catch (err) {
+          console.log('Zoom not supported or failed');
+        }
+
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           videoRef.current.setAttribute('playsinline', true);

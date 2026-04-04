@@ -321,8 +321,9 @@ body::after {
 }
 
 .scan-frame {
-  width: 65%;
-  aspect-ratio: 1.2;
+  width: 80%;
+  height: 25%;
+  max-height: 150px;
   position: relative;
 }
 
