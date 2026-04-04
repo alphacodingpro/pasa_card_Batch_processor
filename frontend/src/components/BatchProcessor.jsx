@@ -105,7 +105,13 @@ export default function BatchProcessor({ queue, setQueue }) {
   };
 
   // ── Crop editor ────────────────────────────────────────────
-  const openEditor  = (item) => { setEditingItem(item); setCrop(undefined); setCompletedCrop(null); setScanStatus(''); };
+  const openEditor  = (item) => { 
+    setEditingItem(item); 
+    // Auto-select the top PSA barcode area for 1-click convenience
+    setCrop({ unit: '%', x: 5, y: 2, width: 90, height: 15 }); 
+    setCompletedCrop(null); 
+    setScanStatus(''); 
+  };
   const closeEditor = ()     => setEditingItem(null);
 
   const getCroppedDataUrl = () => {
@@ -193,9 +199,9 @@ export default function BatchProcessor({ queue, setQueue }) {
             <p style={{ color: '#aaa', fontSize: '0.9rem' }}>Isolate the barcode for better detection.</p>
           </div>
 
-          <div style={{ flex: 1, background: '#000', borderRadius: '12px', overflow: 'hidden', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-            <ReactCrop crop={crop} onChange={(_, pc) => setCrop(pc)} onComplete={c => setCompletedCrop(c)} style={{ maxWidth: '100%' }}>
-              <img ref={imgRef} src={editingItem.dataUrl} style={{ maxWidth: '100%', maxHeight: '60vh', objectFit: 'contain' }} />
+          <div style={{ flex: 1, background: '#111', borderRadius: '12px', overflow: 'hidden', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', paddingTop: '10%' }}>
+            <ReactCrop crop={crop} onChange={(_, pc) => setCrop(pc)} onComplete={c => setCompletedCrop(c)} style={{ maxWidth: '100%', transform: 'scale(1.8)', transformOrigin: 'top center', transition: 'transform 0.3s ease' }}>
+              <img ref={imgRef} src={editingItem.dataUrl} style={{ maxWidth: '100%', maxHeight: '55vh', objectFit: 'contain' }} />
             </ReactCrop>
           </div>
 
