@@ -1,131 +1,89 @@
 import { BrowserMultiFormatReader } from '@zxing/browser';
+import { BarcodeFormat, DecodeHintType } from '@zxing/library';
 
-const reader = new BrowserMultiFormatReader();
+// Reader with Code128/Code39 hints (PSA uses Code128)
+const hints = new Map();
+hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+  BarcodeFormat.CODE_128,
+  BarcodeFormat.CODE_39,
+  BarcodeFormat.EAN_13,
+  BarcodeFormat.EAN_8,
+  BarcodeFormat.UPC_A,
+]);
+hints.set(DecodeHintType.TRY_HARDER, true);
+
+const reader = new BrowserMultiFormatReader(hints);
+
+async function tryScan(canvas) {
+  try {
+    const dataUrl = canvas.toDataURL('image/png');
+    const result  = await reader.decodeFromImageUrl(dataUrl);
+    if (result && result.getText()) return result.getText();
+  } catch (_) {}
+  return null;
+}
 
 /**
- * Advanced scanner that uses a dense overlapping grid (Full, Halves, Quarters, Ninths)
- * and tests both Horizontal (0 deg) and Vertical (90 deg) orientations for each chunk.
- * Return string barcode value or null.
+ * Scan an <img> element. Returns barcode string or null.
  */
 export async function advancedScanImage(imageElement) {
-  // ==========================================
-  // FAST PATH: Native Hardware Barcode Scanning
-  // ==========================================
+
+  // ── Fast path: native hardware BarcodeDetector ──
   if ('BarcodeDetector' in window) {
-      try {
-          const detector = new window.BarcodeDetector({ formats: ['code_128', 'code_39', 'ean_13', 'upc_a'] });
-          const barcodes = await detector.detect(imageElement);
-          if (barcodes && barcodes.length > 0) {
-              console.log(`[Scanner] Instant Hardware Match!`);
-              return barcodes[0].rawValue;
-          }
-      } catch(e) {
-          console.log('Hardware scanner failed, falling back to JS ZXing scanner...');
+    try {
+      const detector = new window.BarcodeDetector({
+        formats: ['code_128', 'code_39', 'ean_13', 'upc_a', 'ean_8', 'upc_e'],
+      });
+      const hits = await detector.detect(imageElement);
+      if (hits && hits.length > 0) {
+        console.log('[Scanner] Native hit:', hits[0].rawValue);
+        return hits[0].rawValue;
       }
+    } catch (_) {}
   }
 
-  // ==========================================
-  // JS FALLBACK PATH: Intensive sliding window ZXing scanning
-  // ==========================================
-  const regions = [];
-  
-  // Is this image already a tight crop? (e.g. from the manual crop editor)
-  const isCroppedStrip = 
-      (imageElement.naturalWidth / imageElement.naturalHeight > 2.5) || 
-      (imageElement.naturalHeight / imageElement.naturalWidth > 2.5);
-
-  // Always test the full image first
-  regions.push({ name: 'Full Image', x: 0, y: 0, w: 1, h: 1 });
-
-  // ONLY attempt grid subdivision if this is a full uncropped photo
-  if (!isCroppedStrip) {
-      // PSA Top Strip — barcode is ALWAYS at the top of PSA slabs
-      regions.push({ name: 'PSA Top Strip', x: 0, y: 0, w: 1, h: 0.2 });
-      regions.push({ name: 'PSA Top Strip Wide', x: 0, y: 0, w: 1, h: 0.35 });
-
-      // Overlapping Halves
-      regions.push({ name: 'Top', x: 0, y: 0, w: 1, h: 0.6 });
-      regions.push({ name: 'Bottom', x: 0, y: 0.4, w: 1, h: 0.6 });
-      regions.push({ name: 'Left', x: 0, y: 0, w: 0.6, h: 1 });
-      regions.push({ name: 'Right', x: 0.4, y: 0, w: 0.6, h: 1 });
-      
-      // 2x2 Grid (Overlapping Quarters)
-      for (let x of [0, 0.4]) {
-        for (let y of [0, 0.4]) {
-            regions.push({ name: `Quarter ${x}-${y}`, x, y, w: 0.6, h: 0.6 });
-        }
-      }
-
-      // 3x3 Grid (Overlapping Ninths)
-      for (let x of [0, 0.3, 0.6]) {
-        for (let y of [0, 0.3, 0.6]) {
-            regions.push({ name: `Ninth ${x}-${y}`, x, y, w: 0.4, h: 0.4 });
-        }
-      }
-  }
+  // ── ZXing fallback ──
+  const W = imageElement.naturalWidth  || imageElement.width  || 0;
+  const H = imageElement.naturalHeight || imageElement.height || 0;
+  if (!W || !H) return null;
 
   const canvas = document.createElement('canvas');
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const ctx    = canvas.getContext('2d', { willReadFrequently: true });
 
-  const tryScanCanvas = async (cvs) => {
-      // low quality jpeg is faster for ZXing
-      const dataUrl = cvs.toDataURL('image/jpeg', 0.8);
-      try {
-          const result = await reader.decodeFromImageUrl(dataUrl);
-          if (result && result.getText()) return result.getText();
-      } catch (e) {
-          // Internal ZXing ignore
-      }
-      return null;
-  };
+  // Keep max dimension at 1200 px for ZXing precision
+  const scale = Math.min(1, 1200 / Math.max(W, H));
+  const sw = Math.round(W * scale);
+  const sh = Math.round(H * scale);
 
-  for (const region of regions) {
-    const rx = imageElement.naturalWidth * region.x;
-    const ry = imageElement.naturalHeight * region.y;
-    const rw = imageElement.naturalWidth * region.w;
-    const rh = imageElement.naturalHeight * region.h;
+  // Multiple filter passes: raw → mild → heavy contrast
+  const filters = [
+    'none',
+    'grayscale(100%) contrast(1.5)',
+    'grayscale(100%) contrast(2.5) brightness(1.15)',
+  ];
 
-    // ZXing works best with 800-1200px range for small barcodes
-    const MAX_DIM = 1200;
-    let scale = 1;
-    if (rw > MAX_DIM || rh > MAX_DIM) {
-      scale = Math.min(MAX_DIM / rw, MAX_DIM / rh);
-    }
-
-    const sw = rw * scale;
-    const sh = rh * scale;
-
-    // === Pass 1: Original Orientation ===
-    canvas.width = sw;
+  for (const filter of filters) {
+    // Normal orientation
+    canvas.width  = sw;
     canvas.height = sh;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    // Convert to grayscale and boost contrast to help weak barcodes (Skip if heavily pre-processed crop)
-    ctx.filter = isCroppedStrip ? 'none' : 'grayscale(100%) contrast(1.5) brightness(1.1)';
-    ctx.drawImage(imageElement, rx, ry, rw, rh, 0, 0, sw, sh);
-    
-    let res = await tryScanCanvas(canvas);
-    if (res) {
-        console.log(`[Scanner] Found in ${region.name} (Horizontal)`);
-        return res;
-    }
+    ctx.filter = filter;
+    ctx.drawImage(imageElement, 0, 0, sw, sh);
+    let res = await tryScan(canvas);
+    if (res) { console.log('[Scanner] Normal:', filter); return res; }
 
-    // === Pass 2: Rotated 90 Degrees ===
-    // Critical for vertical barcodes moving to horizontal!
-    canvas.width = sh;
+    // 90° rotation (handles portrait-held-phone images)
+    canvas.width  = sh;
     canvas.height = sw;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.translate(canvas.width / 2, canvas.height / 2);
-    ctx.rotate((90 * Math.PI) / 180);
-    ctx.filter = isCroppedStrip ? 'none' : 'grayscale(100%) contrast(1.5) brightness(1.1)';
-    ctx.drawImage(imageElement, rx, ry, rw, rh, -sw / 2, -sh / 2, sw, sh);
-
-    res = await tryScanCanvas(canvas);
-    if (res) {
-        console.log(`[Scanner] Found in ${region.name} (Vertical)`);
-        return res;
-    }
+    ctx.translate(sh / 2, sw / 2);
+    ctx.rotate(Math.PI / 2);
+    ctx.filter = filter;
+    ctx.drawImage(imageElement, -sw / 2, -sh / 2, sw, sh);
+    res = await tryScan(canvas);
+    if (res) { console.log('[Scanner] Rotated 90°:', filter); return res; }
   }
 
-  console.log(`[Scanner] Intensive sliding-window scan failed.`);
+  console.log('[Scanner] All passes failed');
   return null;
 }

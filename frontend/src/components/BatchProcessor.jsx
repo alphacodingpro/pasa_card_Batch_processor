@@ -228,9 +228,9 @@ export default function BatchProcessor({ queue, setQueue }) {
             <p style={{ color: '#aaa', fontSize: '0.9rem' }}>Isolate the barcode for better detection.</p>
           </div>
 
-          <div style={{ flex: 1, background: '#111', borderRadius: '12px', overflow: 'hidden', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', paddingTop: '10%' }}>
-            <ReactCrop crop={crop} onChange={(_, pc) => setCrop(pc)} onComplete={c => setCompletedCrop(c)} style={{ maxWidth: '100%', transform: 'scale(1.8)', transformOrigin: 'top center', transition: 'transform 0.3s ease' }}>
-              <img ref={imgRef} src={editingItem.dataUrl} style={{ maxWidth: '100%', maxHeight: '55vh', objectFit: 'contain' }} />
+          <div style={{ flex: 1, background: '#111', borderRadius: '12px', overflow: 'auto', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '12px' }}>
+            <ReactCrop crop={crop} onChange={(_, pc) => setCrop(pc)} onComplete={c => setCompletedCrop(c)} style={{ maxWidth: '100%' }}>
+              <img ref={imgRef} src={editingItem.dataUrl} style={{ width: '100%', maxWidth: '500px', height: 'auto', objectFit: 'contain' }} />
             </ReactCrop>
           </div>
 
