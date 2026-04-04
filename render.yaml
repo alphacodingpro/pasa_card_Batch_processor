@@ -31,4 +31,4 @@ services:
         fromService:
           type: web
           name: psa-backend
-          property: host
+          property: url
