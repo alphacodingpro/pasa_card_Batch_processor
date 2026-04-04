@@ -9,8 +9,10 @@ services:
     region: ohio
     plan: free
     buildCommand: "cd backend && pip install -r requirements.txt"
-    startCommand: "cd backend && gunicorn main:app -w 4 -k uvicorn.workers.UvicornWorker"
+    startCommand: "cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT"
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.4
       - key: POSTGRES_URL
         fromDatabase:
           name: psa-card-db
