@@ -27,7 +27,8 @@ export default function BatchProcessor({ queue, setQueue }) {
     setQueue(prev => prev.map(item => item.id === id ? { ...item, ...updates } : item));
 
   // Determine API base URL (uses Vite proxy locally, and fully qualified URL in production)
-  const API_BASE = import.meta.env.VITE_API_URL || '';
+  const renderHost = import.meta.env.VITE_API_URL || '';
+  const API_BASE = renderHost ? `https://${renderHost}` : '';
 
   // ── Backend pipeline ───────────────────────────────────────
   const sendToBackend = async (id, barcode) => {

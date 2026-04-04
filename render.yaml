@@ -1,7 +1,6 @@
 databases:
   - name: psa-card-db
     plan: free
-    region: ohio
 
 services:
   - type: web
@@ -33,4 +32,4 @@ services:
         fromService:
           type: web
           name: psa-backend
-          property: hostport
+          property: host
