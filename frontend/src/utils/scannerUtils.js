@@ -1,25 +1,43 @@
-import { BrowserMultiFormatReader } from '@zxing/browser';
-import { BarcodeFormat, DecodeHintType } from '@zxing/library';
+import { Html5Qrcode } from 'html5-qrcode';
 
-// Reader with Code128/Code39 hints (PSA uses Code128)
-const hints = new Map();
-hints.set(DecodeHintType.POSSIBLE_FORMATS, [
-  BarcodeFormat.CODE_128,
-  BarcodeFormat.CODE_39,
-  BarcodeFormat.EAN_13,
-  BarcodeFormat.EAN_8,
-  BarcodeFormat.UPC_A,
-]);
-hints.set(DecodeHintType.TRY_HARDER, true);
+let html5QrCode = null;
 
-const reader = new BrowserMultiFormatReader(hints);
+function getScanner() {
+  if (html5QrCode) return html5QrCode;
+  let scannerContainer = document.getElementById('dummy-html5-scanner');
+  if (!scannerContainer) {
+    scannerContainer = document.createElement('div');
+    scannerContainer.id = 'dummy-html5-scanner';
+    scannerContainer.style.display = 'none';
+    document.body.appendChild(scannerContainer);
+  }
+  html5QrCode = new Html5Qrcode("dummy-html5-scanner");
+  return html5QrCode;
+}
+
+function dataURLtoFile(dataurl, filename) {
+  let arr = dataurl.split(','),
+      mime = arr[0].match(/:(.*?);/)[1],
+      bstr = atob(arr[1]), 
+      n = bstr.length, 
+      u8arr = new Uint8Array(n);
+      
+  while(n--){
+      u8arr[n] = bstr.charCodeAt(n);
+  }
+  return new File([u8arr], filename, {type:mime});
+}
 
 async function tryScan(canvas) {
   try {
-    const dataUrl = canvas.toDataURL('image/png');
-    const result  = await reader.decodeFromImageUrl(dataUrl);
-    if (result && result.getText()) return result.getText();
-  } catch (_) {}
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+    const file = dataURLtoFile(dataUrl, 'temp_scan.jpg');
+    const scanner = getScanner();
+    const result = await scanner.scanFile(file, true); // true = scan 1D barcodes as well
+    if (result) return result;
+  } catch (_) {
+    // Not found
+  }
   return null;
 }
 
@@ -42,7 +60,7 @@ export async function advancedScanImage(imageElement) {
     } catch (_) {}
   }
 
-  // ── ZXing fallback ──
+  // ── HTML5-QRCode fallback ──
   const W = imageElement.naturalWidth  || imageElement.width  || 0;
   const H = imageElement.naturalHeight || imageElement.height || 0;
   if (!W || !H) return null;
@@ -50,29 +68,27 @@ export async function advancedScanImage(imageElement) {
   const canvas = document.createElement('canvas');
   const ctx    = canvas.getContext('2d', { willReadFrequently: true });
 
-  // Keep max dimension at 1200 px for ZXing precision
-  const scale = Math.min(1, 1200 / Math.max(W, H));
+  const scale = Math.min(1, 1500 / Math.max(W, H));
   const sw = Math.round(W * scale);
   const sh = Math.round(H * scale);
 
-  // Multiple filter passes: raw → mild → heavy contrast
   const filters = [
     'none',
     'grayscale(100%) contrast(1.5)',
-    'grayscale(100%) contrast(2.5) brightness(1.15)',
+    'grayscale(100%) contrast(2.5) brightness(1.2)',
   ];
 
   for (const filter of filters) {
-    // Normal orientation
+    // Normal pass
     canvas.width  = sw;
     canvas.height = sh;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.filter = filter;
     ctx.drawImage(imageElement, 0, 0, sw, sh);
     let res = await tryScan(canvas);
-    if (res) { console.log('[Scanner] Normal:', filter); return res; }
+    if (res) { console.log('[Scanner] HTML5-QC Normal:', filter); return res; }
 
-    // 90° rotation (handles portrait-held-phone images)
+    // 90° Rotated pass
     canvas.width  = sh;
     canvas.height = sw;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -81,7 +97,7 @@ export async function advancedScanImage(imageElement) {
     ctx.filter = filter;
     ctx.drawImage(imageElement, -sw / 2, -sh / 2, sw, sh);
     res = await tryScan(canvas);
-    if (res) { console.log('[Scanner] Rotated 90°:', filter); return res; }
+    if (res) { console.log('[Scanner] HTML5-QC Rotated 90°:', filter); return res; }
   }
 
   console.log('[Scanner] All passes failed');
