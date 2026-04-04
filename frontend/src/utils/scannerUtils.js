@@ -8,6 +8,25 @@ const reader = new BrowserMultiFormatReader();
  * Return string barcode value or null.
  */
 export async function advancedScanImage(imageElement) {
+  // ==========================================
+  // FAST PATH: Native Hardware Barcode Scanning
+  // ==========================================
+  if ('BarcodeDetector' in window) {
+      try {
+          const detector = new window.BarcodeDetector({ formats: ['code_128', 'code_39', 'ean_13', 'upc_a'] });
+          const barcodes = await detector.detect(imageElement);
+          if (barcodes && barcodes.length > 0) {
+              console.log(`[Scanner] Instant Hardware Match!`);
+              return barcodes[0].rawValue;
+          }
+      } catch(e) {
+          console.log('Hardware scanner failed, falling back to JS ZXing scanner...');
+      }
+  }
+
+  // ==========================================
+  // JS FALLBACK PATH: Intensive sliding window ZXing scanning
+  // ==========================================
   const regions = [];
   
   // 1. Full Image
