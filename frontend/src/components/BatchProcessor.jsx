@@ -371,13 +371,23 @@ function Row({ label, value }) {
 }
 
 function PriceBox({ label, data = {}, color }) {
+  const isNegative = data.change && data.change.toString().includes('-');
   return (
-    <div style={{ background: color, border: '1px solid rgba(255,255,255,0.07)', borderRadius: '8px', padding: '8px 10px' }}>
-      <div style={{ color: '#aaa', fontSize: '0.72rem', marginBottom: '4px' }}>{label}</div>
-      <div style={{ color: '#fff', fontWeight: 700, fontSize: '1rem' }}>
-        {data.price ? `$${Number(data.price).toFixed(2)}` : 'N/A'}
+    <div style={{ background: color, border: '1px solid rgba(255,255,255,0.07)', borderRadius: '8px', padding: '10px' }}>
+      <div style={{ color: '#aaa', fontSize: '0.85rem', marginBottom: '4px', fontWeight: 600 }}>{label}</div>
+      <div style={{ color: '#fff', fontWeight: 700, fontSize: '1.1rem', marginBottom: '4px' }}>
+        {data.price ? (data.price.toString().startsWith('$') ? data.price : `$${Number(data.price).toFixed(2)}`) : 'N/A'}
       </div>
-      {data.volume && <div style={{ color: '#666', fontSize: '0.72rem', marginTop: '2px' }}>Vol: {data.volume}</div>}
+      {data.change && (
+         <div style={{ color: isNegative ? 'var(--danger)' : 'var(--success)', fontSize: '0.75rem', marginBottom: '2px' }}>
+            change: {data.change}
+         </div>
+      )}
+      {data.volume_display && (
+         <div style={{ color: '#888', fontSize: '0.75rem' }}>
+            {data.volume_display}
+         </div>
+      )}
     </div>
   );
 }
