@@ -12,21 +12,25 @@ export async function advancedScanImage(imageElement) {
   
   // 1. Full Image
   regions.push({ name: 'Full Image', x: 0, y: 0, w: 1, h: 1 });
-  
-  // 2. Overlapping Halves
+
+  // 2. PSA Top Strip — barcode is ALWAYS at the top of PSA slabs
+  regions.push({ name: 'PSA Top Strip', x: 0, y: 0, w: 1, h: 0.2 });
+  regions.push({ name: 'PSA Top Strip Wide', x: 0, y: 0, w: 1, h: 0.35 });
+
+  // 3. Overlapping Halves
   regions.push({ name: 'Top', x: 0, y: 0, w: 1, h: 0.6 });
   regions.push({ name: 'Bottom', x: 0, y: 0.4, w: 1, h: 0.6 });
   regions.push({ name: 'Left', x: 0, y: 0, w: 0.6, h: 1 });
   regions.push({ name: 'Right', x: 0.4, y: 0, w: 0.6, h: 1 });
   
-  // 3. 2x2 Grid (Overlapping Quarters)
+  // 4. 2x2 Grid (Overlapping Quarters)
   for (let x of [0, 0.4]) {
     for (let y of [0, 0.4]) {
         regions.push({ name: `Quarter ${x}-${y}`, x, y, w: 0.6, h: 0.6 });
     }
   }
 
-  // 4. 3x3 Grid (Overlapping Ninths)
+  // 5. 3x3 Grid (Overlapping Ninths)
   for (let x of [0, 0.3, 0.6]) {
     for (let y of [0, 0.3, 0.6]) {
         regions.push({ name: `Ninth ${x}-${y}`, x, y, w: 0.4, h: 0.4 });
@@ -54,8 +58,8 @@ export async function advancedScanImage(imageElement) {
     const rw = imageElement.naturalWidth * region.w;
     const rh = imageElement.naturalHeight * region.h;
 
-    // ZXing prefers smaller images (e.g. 600-800px). Large 4K images cause algorithm thresholding to fail.
-    const MAX_DIM = 800; 
+    // ZXing works best with 800-1200px range for small barcodes
+    const MAX_DIM = 1200;
     let scale = 1;
     if (rw > MAX_DIM || rh > MAX_DIM) {
       scale = Math.min(MAX_DIM / rw, MAX_DIM / rh);
@@ -69,7 +73,7 @@ export async function advancedScanImage(imageElement) {
     canvas.height = sh;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     // Convert to grayscale and boost contrast to help weak barcodes
-    ctx.filter = 'grayscale(100%) contrast(1.15) brightness(1.05)';
+    ctx.filter = 'grayscale(100%) contrast(1.5) brightness(1.1) sharpen(1)';
     ctx.drawImage(imageElement, rx, ry, rw, rh, 0, 0, sw, sh);
     
     let res = await tryScanCanvas(canvas);
