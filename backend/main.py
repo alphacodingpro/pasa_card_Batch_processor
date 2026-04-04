@@ -33,9 +33,8 @@ app.add_middleware(
 # 2. Async Startup to avoid blocking health checks
 @app.on_event("startup")
 async def startup_event():
-    # Run DB init in background to not block the server from being "Live"
     def init_db():
-        retries = 10
+        retries = 15
         while retries > 0:
             try:
                 from database import engine, Base
@@ -44,12 +43,24 @@ async def startup_event():
                 print("✅ Database connected and tables created.")
                 break
             except Exception as e:
-                print(f"⏳ Waiting for DB... ({retries} left) Error: {e}")
+                print(f"⏳ Waiting for DB DNS... ({retries} left). Error: {e}")
                 retries -= 1
-                time.sleep(5)
-    
+                time.sleep(6)
+        else:
+            print("❌ FATAL: Could not connect to the database after all retries.")
     import threading
     threading.Thread(target=init_db, daemon=True).start()
+
+from fastapi.responses import JSONResponse
+from fastapi.requests import Request
+
+@app.exception_handler(Exception)
+async def generic_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={"error": str(exc), "detail": "Internal server error. Check backend logs."},
+        headers={"Access-Control-Allow-Origin": "*"},
+    )
 
 @app.get("/")
 def read_root():
@@ -462,23 +473,26 @@ def run_pipeline(barcode: str, db_id: int):
 # ─────────────────────────────────────────────
 @app.post("/process")
 def process_barcode(req: ProcessRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
-    # Cache check
-    cached = db.query(CardProcess).filter(
-        CardProcess.barcode == req.barcode,
-        CardProcess.status.in_(["complete", "partial"])
-    ).first()
+    try:
+        # Cache check
+        cached = db.query(CardProcess).filter(
+            CardProcess.barcode == req.barcode,
+            CardProcess.status.in_(["complete", "partial"])
+        ).first()
 
-    if cached and cached.result_json:
-        data = json.loads(cached.result_json)
-        return {"id": cached.id, "cached": True, **data}
+        if cached and cached.result_json:
+            data = json.loads(cached.result_json)
+            return {"id": cached.id, "cached": True, **data}
 
-    new_process = CardProcess(barcode=req.barcode)
-    db.add(new_process)
-    db.commit()
-    db.refresh(new_process)
+        new_process = CardProcess(barcode=req.barcode)
+        db.add(new_process)
+        db.commit()
+        db.refresh(new_process)
 
-    background_tasks.add_task(run_pipeline, req.barcode, new_process.id)
-    return {"id": new_process.id, "barcode": req.barcode, "status": "pending", "cached": False}
+        background_tasks.add_task(run_pipeline, req.barcode, new_process.id)
+        return {"id": new_process.id, "barcode": req.barcode, "status": "pending", "cached": False}
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Database unavailable: {str(e)}")
 
 
 @app.get("/status/{process_id}")
