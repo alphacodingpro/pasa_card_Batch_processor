@@ -80,21 +80,19 @@ export async function advancedScanImage(imageElement) {
   regions.push({ name: 'Full Image', x: 0, y: 0, w: 1, h: 1 });
 
   if (!isCroppedStrip) {
+    // High probability regions (Standard upright PSA)
     regions.push({ name: 'PSA Top Strip 15%', x: 0, y: 0, w: 1, h: 0.15 });
     regions.push({ name: 'PSA Top Strip 25%', x: 0, y: 0, w: 1, h: 0.25 });
     
-    // Half splits
+    // Upside-down PSA cards
+    regions.push({ name: 'PSA Bottom Strip 15%', x: 0, y: 0.85, w: 1, h: 0.15 });
+    regions.push({ name: 'PSA Bottom Strip 25%', x: 0, y: 0.75, w: 1, h: 0.25 });
+    
+    // Half splits to catch sideways photos
     regions.push({ name: 'Top Half', x: 0, y: 0, w: 1, h: 0.5 });
-    regions.push({ name: 'Bottom Half', x: 0, y: 0.5, w: 1, h: 0.5 });
     regions.push({ name: 'Left Half', x: 0, y: 0, w: 0.5, h: 1 });
     regions.push({ name: 'Right Half', x: 0.5, y: 0, w: 0.5, h: 1 });
-
-    // Quarters
-    for (let x of [0, 0.5]) {
-      for (let y of [0, 0.5]) {
-         regions.push({ name: `Quarter ${x}-${y}`, x, y, w: 0.5, h: 0.5 });
-      }
-    }
+    regions.push({ name: 'Bottom Half', x: 0, y: 0.5, w: 1, h: 0.5 });
   }
 
   const canvas = document.createElement('canvas');
@@ -117,26 +115,35 @@ export async function advancedScanImage(imageElement) {
       isCroppedStrip ? 'none' : 'grayscale(100%) contrast(1.5) brightness(1.1)',
     ];
 
-    for (const filter of filters) {
-      // Horizontal Test
-      canvas.width = sw;
-      canvas.height = sh;
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.filter = filter;
-      ctx.drawImage(imageElement, rx, ry, rw, rh, 0, 0, sw, sh);
-      let res = await tryScanZxing(canvas);
-      if (res) { console.log(`[Scanner ZX] Found in ${region.name} (H):`, filter); return res; }
+    const rotations = [
+       { name: '0°', angle: 0, w: sw, h: sh },
+       { name: '90°', angle: Math.PI / 2, w: sh, h: sw },
+       { name: '180°', angle: Math.PI, w: sw, h: sh },
+       { name: '270°', angle: -Math.PI / 2, w: sh, h: sw }
+    ];
 
-      // Rotated Test (Vertical barcode correction)
-      canvas.width = sh;
-      canvas.height = sw;
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.translate(sh / 2, sw / 2);
-      ctx.rotate(Math.PI / 2);
-      ctx.filter = filter;
-      ctx.drawImage(imageElement, rx, ry, rw, rh, -sw/2, -sh/2, sw, sh);
-      res = await tryScanZxing(canvas);
-      if (res) { console.log(`[Scanner ZX] Found in ${region.name} (V):`, filter); return res; }
+    for (const filter of filters) {
+       for (const rot of rotations) {
+          canvas.width = rot.w;
+          canvas.height = rot.h;
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
+          
+          if (rot.angle !== 0) {
+             ctx.translate(rot.w / 2, rot.h / 2);
+             ctx.rotate(rot.angle);
+             ctx.filter = filter;
+             ctx.drawImage(imageElement, rx, ry, rw, rh, -sw/2, -sh/2, sw, sh);
+          } else {
+             ctx.filter = filter;
+             ctx.drawImage(imageElement, rx, ry, rw, rh, 0, 0, sw, sh);
+          }
+          
+          let res = await tryScanZxing(canvas);
+          if (res) { 
+             console.log(`[Scanner ZX] Found in ${region.name} (${rot.name}):`, filter); 
+             return res; 
+          }
+       }
     }
   }
 
