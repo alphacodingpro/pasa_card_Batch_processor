@@ -15,7 +15,7 @@ services:
       - key: POSTGRES_URL
         fromDatabase:
           name: psa-card-db
-          property: connectionString
+          property: externalConnectionString
       - key: FIRECRAWL_API_KEY
         sync: false
       - key: SERPAPI_KEY
