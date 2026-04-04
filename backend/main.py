@@ -21,7 +21,7 @@ load_dotenv()
 
 app = FastAPI(title="PSA Scanner Backend")
 
-# 1. Broad CORS for production flexibility
+# 1. CORS MUST BE FIRST
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

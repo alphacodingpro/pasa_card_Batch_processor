@@ -10,7 +10,11 @@ self.addEventListener('activate', (e) => {
 });
 
 self.addEventListener('fetch', (e) => {
-  // simple pass-through network-first strategy
+  // Bypass service worker for API calls and non-GET requests
+  if (e.request.url.includes('onrender.com') || e.request.method !== 'GET') {
+    return; 
+  }
+
   e.respondWith(
     fetch(e.request).catch(() => {
       return caches.match(e.request);
