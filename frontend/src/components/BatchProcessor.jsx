@@ -14,14 +14,18 @@ export default function BatchProcessor({ queue, setQueue }) {
 
   useEffect(() => {
     if (autoProcess) {
-      queue.forEach(item => {
-        if (item.status === 'pending') {
-          processScan(item);
-        } else if (item.status === 'camera_scanned') {
-          // Immediately send to backend, skipping local JS image scan
-          updateQueueItem(item.id, { status: 'process_backend' });
-          sendToBackend(item.id, item.barcode);
-        }
+      const pending = queue.filter(item => item.status === 'pending');
+      const cameraScanned = queue.filter(item => item.status === 'camera_scanned');
+
+      // Scan all pending images in PARALLEL
+      if (pending.length > 0) {
+        Promise.all(pending.map(item => processScan(item)));
+      }
+
+      // Camera scans go straight to backend (also parallel)
+      cameraScanned.forEach(item => {
+        updateQueueItem(item.id, { status: 'process_backend' });
+        sendToBackend(item.id, item.barcode);
       });
     }
   }, [queue, autoProcess]);
@@ -90,10 +94,35 @@ export default function BatchProcessor({ queue, setQueue }) {
   // ── Scan logic ─────────────────────────────────────────────
   const processScan = async (item, overrideDataUrl = null) => {
     updateQueueItem(item.id, { status: 'scanning' });
+
     const img = new Image();
-    img.src  = overrideDataUrl || item.dataUrl;
+    img.src = overrideDataUrl || item.dataUrl;
     await new Promise(r => { img.onload = r; });
-    const result = await advancedScanImage(img);
+
+    // Pre-crop the top label strip (y:8%, h:40%) — same as manual crop box
+    // This is why manual crop works instantly: scanner sees only the barcode area
+    let scanTarget = img;
+    if (!overrideDataUrl) {
+      try {
+        const cvs = document.createElement('canvas');
+        const W = img.naturalWidth || img.width;
+        const H = img.naturalHeight || img.height;
+        const stripY = Math.round(H * 0.08);
+        const stripH = Math.round(H * 0.42);
+        cvs.width  = W;
+        cvs.height = stripH;
+        const cx = cvs.getContext('2d');
+        cx.drawImage(img, 0, stripY, W, stripH, 0, 0, W, stripH);
+        const stripImg = new Image();
+        await new Promise(r => {
+          stripImg.onload = r;
+          stripImg.src = cvs.toDataURL('image/jpeg', 0.95);
+        });
+        scanTarget = stripImg;
+      } catch (_) { scanTarget = img; }
+    }
+
+    const result = await advancedScanImage(scanTarget);
     if (result) {
       updateQueueItem(item.id, { status: 'process_backend', barcode: result });
       await sendToBackend(item.id, result);
