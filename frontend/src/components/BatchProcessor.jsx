@@ -293,10 +293,20 @@ function QueueCard({ item, onOpenEditor, onProcessAsIs, onImageClick, onCopy }) 
           <strong style={{ color: '#e2e8f0', fontSize: '0.79rem', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {item.file_name}
           </strong>
-          <span style={{ fontSize: '0.73rem', color: isDone ? 'var(--success)' : isPartial ? 'var(--warning)' : isError ? 'var(--danger)' : '#888' }}>
+          <span style={{ fontSize: '0.73rem', color: isDone ? 'var(--success)' : isPartial ? 'var(--warning)' : isError ? 'var(--danger)' : '#a0a5b5', display: 'flex', alignItems: 'center' }}>
             {item.status === 'pending' && '⏳ Waiting…'}
-            {item.status === 'scanning' && '🔍 Scanning…'}
-            {item.status === 'process_backend' && '🌐 Fetching data…'}
+            {item.status === 'scanning' && (
+              <>
+                <div className="spinner-xs" style={{ borderTopColor: 'var(--accent-3)' }}></div>
+                Scanning…
+              </>
+            )}
+            {item.status === 'process_backend' && (
+              <>
+                <div className="spinner-xs" style={{ borderTopColor: 'var(--success)' }}></div>
+                Fetching data…
+              </>
+            )}
             {isDone && `✅ ${item.barcode}`}
             {isPartial && `⚠️ Partial — ${item.barcode}`}
             {isError && `❌ ${item.error}`}
