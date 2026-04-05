@@ -40,7 +40,7 @@ function getWarpedLabel(imageElement) {
             if (area > maxArea) { maxArea = area; bestIdx = i; }
         }
 
-        // Must be at least 1% of the image to be the label
+        // Must be at least 0.5% of the image to be the label
         if (bestIdx !== -1 && maxArea > (src.rows * src.cols * 0.005)) {
             let cnt = contours.get(bestIdx);
             let peri = cv.arcLength(cnt, true);
@@ -50,19 +50,43 @@ function getWarpedLabel(imageElement) {
             if (approx.rows === 4) {
                 // Perspective Warp to fix tilt/angle
                 let pts = [];
-                for (let i = 0; i < 4; i++) pts.push({ x: approx.data32S[i * 2], y: approx.data32S[i * 2 + 1] });
-                
+                for (let i = 0; i < 4; i++) {
+                    pts.push({ x: approx.data32S[i * 2], y: approx.data32S[i * 2 + 1] });
+                }
+
+                // Determine orientation (is it a vertical label?)
+                // Find bounding rect to check aspect ratio
+                let rect = cv.boundingRect(cnt);
+                const isVertical = rect.height > rect.width;
+
+                // Sort points for warp
                 pts.sort((a, b) => a.y - b.y);
-                let t = pts.slice(0, 2).sort((a, b) => a.x - b.x);
-                let b = pts.slice(2, 4).sort((a, b) => a.x - b.x);
+                let top = pts.slice(0, 2).sort((a, b) => a.x - b.x);
+                let bot = pts.slice(2, 4).sort((a, b) => a.x - b.x);
+
+                let srcP = cv.matFromArray(4, 1, cv.CV_32FC2, [top[0].x, top[0].y, top[1].x, top[1].y, bot[1].x, bot[1].y, bot[0].x, bot[0].y]);
                 
-                let srcP = cv.matFromArray(4, 1, cv.CV_32FC2, [t[0].x, t[0].y, t[1].x, t[1].y, b[1].x, b[1].y, b[0].x, b[0].y]);
-                let dstP = cv.matFromArray(4, 1, cv.CV_32FC2, [0, 0, 1200, 280, 1200, 280, 0, 280]); // Final resolution
-                dstP.data32F[2] = 1200; dstP.data32F[3] = 0; // Fix coords
+                // If vertical, we warp to a tall rectangle then rotate, or just swap dst coords
+                let targetW = 1200;
+                let targetH = 280;
+                
+                if (isVertical) {
+                    // Remap points to treat vertical as horizontal
+                    // top-left becomes bot-left, etc.
+                    srcP.delete();
+                    // We want: [top-right, bot-right, bot-left, top-left] mapped to [0,0, 1200,0, 1200,280, 0,280]
+                    // Actually easier: just sort differently
+                    pts.sort((a, b) => a.x - b.x);
+                    let left = pts.slice(0, 2).sort((a, b) => a.y - b.y);
+                    let right = pts.slice(2, 4).sort((a, b) => a.y - b.y);
+                    srcP = cv.matFromArray(4, 1, cv.CV_32FC2, [right[0].x, right[0].y, right[1].x, right[1].y, left[1].x, left[1].y, left[0].x, left[0].y]);
+                }
+
+                let dstP = cv.matFromArray(4, 1, cv.CV_32FC2, [0, 0, targetW, 0, targetW, targetH, 0, targetH]);
                 
                 let trans = cv.getPerspectiveTransform(srcP, dstP);
                 let warped = new cv.Mat();
-                cv.warpPerspective(src, warped, trans, new cv.Size(1200, 280));
+                cv.warpPerspective(src, warped, trans, new cv.Size(targetW, targetH));
 
                 let canvas = document.createElement('canvas');
                 cv.imshow(canvas, warped);
@@ -129,7 +153,7 @@ export async function advancedScanImage(imageElement) {
   }
 
   // Pass 2: High-Zoom Fast Pass (Speed Optimization)
-  // PSA labels are almost always at the TOP or BOTTOM. 3x zoom is needed for tiny bars.
+  // PSA labels are almost always at the TOP, BOTTOM, or SIDES (if rotated landscape).
   const W = imageElement.naturalWidth || imageElement.width || 0;
   const H = imageElement.naturalHeight || imageElement.height || 0;
   if (!W || !H) return null;
@@ -138,17 +162,22 @@ export async function advancedScanImage(imageElement) {
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   
   const fastRegions = [
-    { name: 'top-zoom',    sx: 0, sy: 0,        sw: W, sh: H * 0.20 },
-    { name: 'bottom-zoom', sx: 0, sy: H * 0.70, sw: W, sh: H * 0.30 }
+    { name: 'top-zoom',    sx: 0, sy: 0,        sw: W, sh: H * 0.25 },
+    { name: 'bottom-zoom', sx: 0, sy: H * 0.75, sw: W, sh: H * 0.25 },
+    { name: 'left-zoom',   sx: 0, sy: 0,        sw: W * 0.25, sh: H },
+    { name: 'right-zoom',  sx: W * 0.75, sy: 0, sw: W * 0.25, sh: H }
   ];
 
   for (const reg of fastRegions) {
-    // Zoom 3.0x is critical for Code 128 resolution
-    const dw = reg.sw * 3.0;
-    const dh = reg.sh * 3.0;
+    const dw = reg.sw * 2.5; 
+    const dh = reg.sh * 2.5;
     
-    // Normal + 180 degrees only for speed
-    for (const rot of [0, 180]) {
+    // Rotate checks: 0 & 180 are standard. 
+    // If landscape, we try 90/270 in Fast Pass because cards are often rotated.
+    const isLandscape = W > H;
+    const fastRotations = isLandscape ? [0, 90, 180, 270] : [0, 180];
+
+    for (const rot of fastRotations) {
       drawRegion(canvas, ctx, imageElement, reg.sx, reg.sy, reg.sw, reg.sh, dw, dh, rot);
       const res = await tryScanHtml5(canvas);
       if (res) return res;
