@@ -1,175 +1,100 @@
 import { useEffect, useRef, useState } from 'react';
-import { BrowserMultiFormatReader } from '@zxing/browser';
-import { BarcodeFormat, DecodeHintType } from '@zxing/library';
+import { Html5Qrcode } from 'html5-qrcode';
 
 export default function CameraScanner({ onScan, active }) {
   const videoRef = useRef(null);
-  const readerRef = useRef(null);
-  const controlsRef = useRef(null);
-  const streamRef = useRef(null);
+  const scannerRef = useRef(null);
   const [error, setError] = useState('');
   const [torchOn, setTorchOn] = useState(false);
 
+  // Toggle Flashlight/Torch using Html5Qrcode constraints
   const toggleTorch = async () => {
-    const stream = streamRef.current;
-    if (!stream) return;
-    const track = stream.getVideoTracks()[0];
-    if (!track || !track.getCapabilities()?.torch) return;
-    const newState = !torchOn;
-    await track.applyConstraints({ advanced: [{ torch: newState }] });
-    setTorchOn(newState);
+    if (!scannerRef.current) return;
+    try {
+      const newState = !torchOn;
+      await scannerRef.current.applyVideoConstraints({
+        advanced: [{ torch: newState }]
+      });
+      setTorchOn(newState);
+    } catch (err) {
+      console.log('Flashlight not supported:', err);
+    }
   };
 
   useEffect(() => {
     if (!active) {
-      if (controlsRef.current) { controlsRef.current.stop(); controlsRef.current = null; }
-      if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
+      if (scannerRef.current) {
+        scannerRef.current.stop()
+          .then(() => { scannerRef.current = null; })
+          .catch(err => console.error('Error stopping scanner:', err));
+      }
       return;
     }
 
-    const hints = new Map();
-    hints.set(DecodeHintType.POSSIBLE_FORMATS, [
-      BarcodeFormat.CODE_128,
-      BarcodeFormat.CODE_39,
-      BarcodeFormat.EAN_13,
-      BarcodeFormat.UPC_A,
-      BarcodeFormat.QR_CODE,
-      BarcodeFormat.DATA_MATRIX,
-    ]);
-    hints.set(DecodeHintType.TRY_HARDER, true);
+    // Initialize HTML5-QRCode
+    let scanner = new Html5Qrcode('camera-reader-el');
+    scannerRef.current = scanner;
 
-    const reader = new BrowserMultiFormatReader(hints);
-    readerRef.current = reader;
-
-    const startScanning = async () => {
+    const startScanner = async () => {
       try {
-        if (!navigator.mediaDevices?.getUserMedia) {
-          throw new Error('Camera access requires HTTPS. Please use Upload Image instead.');
-        }
-
-        // Request high-res rear camera — critical for small barcodes on PSA slabs
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: 'environment' }, // rear camera
-            width:  { ideal: 1920 },
-            height: { ideal: 1080 },
+        const config = {
+          fps: 10,
+          qrbox: (viewfinderWidth, viewfinderHeight) => {
+             // Optimize box for 1D barcodes (wide and short)
+             return { width: viewfinderWidth * 0.8, height: viewfinderHeight * 0.4 };
+          },
+          aspectRatio: 1.777778, // 16:9
+          videoConstraints: {
+            facingMode: 'environment', // Rear camera
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
           }
-        });
-        streamRef.current = stream;
-
-        // Attempt to auto-zoom (2.5x) for tiny PSA barcodes
-        try {
-          const track = stream.getVideoTracks()[0];
-          const capabilities = track.getCapabilities();
-          if (capabilities.zoom) {
-            const zoomVal = Math.min(capabilities.zoom.max, Math.max(capabilities.zoom.min, 2.5));
-            await track.applyConstraints({ advanced: [{ zoom: zoomVal }] });
-          }
-        } catch (err) {
-          console.log('Zoom not supported or failed');
-        }
-
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.setAttribute('playsinline', true);
-          await videoRef.current.play();
-        }
-
-        // Custom manual polling loop for robust 1D barcode detection
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d', { willReadFrequently: true });
-        let scanning = true;
-
-        controlsRef.current = {
-            stop: () => { scanning = false; }
         };
 
-        const scanFrame = async () => {
-          if (!scanning || !videoRef.current || videoRef.current.readyState !== videoRef.current.HAVE_ENOUGH_DATA) {
-             if (scanning) requestAnimationFrame(scanFrame);
-             return;
+        await scanner.start(
+          { facingMode: 'environment' },
+          config,
+          (decodedText) => {
+            // Success handler
+            if (scannerRef.current) {
+               scanner.stop().then(() => {
+                 scannerRef.current = null;
+                 onScan(decodedText);
+               }).catch(e => {
+                 onScan(decodedText); // Still call onScan even if stop fails
+               });
+            }
+          },
+          () => {
+            // Frame-level failure (silent)
           }
+        );
 
-          try {
-             // Native Hardware Acceleration - INSTANT detection on supported devices (Chrome Android, iOS 17 Safari)
-             if ('BarcodeDetector' in window) {
-                 try {
-                     const detector = new window.BarcodeDetector({ formats: ['qr_code', 'data_matrix', 'code_128', 'code_39', 'ean_13', 'upc_a'] });
-                     const barcodes = await detector.detect(videoRef.current);
-                     if (barcodes && barcodes.length > 0) {
-                         const text = barcodes[0].rawValue;
-                         if (text) {
-                             scanning = false;
-                             onScan(text);
-                             return;
-                         }
-                     }
-                 } catch(e) {} // Fallback to JS ZXing if native fails or camera is busy
-             }
+        // Attempt initial zoom for PSA barcodes
+        setTimeout(async () => {
+           try {
+              // Note: html5-qrcode doesn't have a direct "setZoom" but we can try constraints
+              // Most mobile browsers now support this via applyVideoConstraints
+              await scanner.applyVideoConstraints({
+                 advanced: [{ zoom: 2.0 }] 
+              });
+           } catch(e) { console.log('Initial zoom failed'); }
+        }, 1000);
 
-             // ZXing JS Fallback needs a smaller, optimized frame
-             const vw = videoRef.current.videoWidth;
-             const vh = videoRef.current.videoHeight;
-             
-             // Base scale
-             const scale = Math.min(800 / vw, 800 / vh) || 1;
-             const cw = vw * scale;
-             const ch = vh * scale;
-             
-             canvas.width = cw;
-             canvas.height = ch;
-             
-             // Pass 1: Normal Orientation (with contrast boost)
-             ctx.filter = 'grayscale(100%) contrast(1.5) brightness(1.1)';
-             ctx.drawImage(videoRef.current, 0, 0, cw, ch);
-             
-             let result = null;
-             try { result = await reader.decodeFromCanvas(canvas); } catch(e) {}
-             
-             // Pass 2: Rotated 90 Degrees (Critical for portrait-mode scanning of horizontal barcodes!)
-             if (!result) {
-                 canvas.width = ch;
-                 canvas.height = cw;
-                 ctx.setTransform(1, 0, 0, 1, 0, 0);
-                 ctx.translate(canvas.width / 2, canvas.height / 2);
-                 ctx.rotate(90 * Math.PI / 180);
-                 ctx.filter = 'grayscale(100%) contrast(1.5) brightness(1.1)';
-                 ctx.drawImage(videoRef.current, -cw / 2, -ch / 2, cw, ch);
-                 
-                 try { result = await reader.decodeFromCanvas(canvas); } catch(e) {}
-             }
-
-             if (result && result.getText()) {
-                 const text = result.getText();
-                 scanning = false; // Stop immediately
-                 onScan(text);
-                 return;
-             }
-          } catch(err) {
-             // Ignore frame errors
-          }
-
-          // Polling rate ~ 3 FPS to avoid freezing mobile UI
-          setTimeout(() => {
-              if (scanning) requestAnimationFrame(scanFrame);
-          }, 300);
-        };
-
-        requestAnimationFrame(scanFrame);
-
-      } catch (e) {
-        console.error('Camera error:', e);
-        if (e.name === 'NotAllowedError') setError('Camera access denied. Please allow camera permissions.');
-        else if (e.name === 'NotFoundError') setError('No camera found on this device.');
-        else setError(`Camera error: ${e.message}`);
+      } catch (err) {
+        console.error('Scanner start error:', err);
+        setError(`Camera error: ${err.message || err}`);
       }
     };
 
-    startScanning();
+    startScanner();
 
     return () => {
-      if (controlsRef.current) { controlsRef.current.stop(); controlsRef.current = null; }
-      if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
+      if (scannerRef.current) {
+        scannerRef.current.stop()
+          .then(() => { scannerRef.current = null; })
+          .catch(e => console.log('Cleanup stop failed', e));
+      }
     };
   }, [active, onScan]);
 
@@ -184,26 +109,36 @@ export default function CameraScanner({ onScan, active }) {
         </div>
       ) : (
         <>
-          <div className="video-container">
-            <video ref={videoRef} className="scanner-video" playsInline muted autoPlay />
-            <div className="scan-overlay">
-              <div className="scan-frame">
-                <div className="corner tl" />
-                <div className="corner tr" />
-                <div className="corner bl" />
-                <div className="corner br" />
-                <div className="scan-line" />
-              </div>
-            </div>
-            <button onClick={toggleTorch} className="torch-btn" title="Toggle Flashlight">
+          <div className="video-container" style={{ position: 'relative' }}>
+             {/* id="camera-reader-el" is where HTML5Qrcode renders */}
+            <div id="camera-reader-el" style={{ width: '100%', minHeight: '300px', backgroundColor: '#000' }} />
+            
+            <button 
+              onClick={toggleTorch} 
+              className="torch-btn" 
+              title="Toggle Flashlight"
+              style={{
+                position: 'absolute',
+                bottom: '20px',
+                right: '20px',
+                zIndex: 10,
+                background: 'rgba(0,0,0,0.6)',
+                color: 'white',
+                border: '1px solid rgba(255,255,255,0.3)',
+                padding: '8px 12px',
+                borderRadius: '8px',
+                fontSize: '0.8rem'
+              }}
+            >
               {torchOn ? '🔦 Flash ON' : '💡 Flash OFF'}
             </button>
           </div>
-          <p className="scanner-hint">
-            📌 Point the camera at the barcode on the top of the PSA slab. Use the Flash button for small or dim barcodes.
+          <p className="scanner-hint" style={{ marginTop: '12px', textAlign: 'center', color: '#ccc', fontSize: '0.85rem' }}>
+            📌 Point the camera at the barcode on the top of the PSA slab.
           </p>
         </>
       )}
     </div>
   );
 }
+

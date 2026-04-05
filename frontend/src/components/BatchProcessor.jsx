@@ -4,24 +4,32 @@ import 'react-image-crop/dist/ReactCrop.css';
 import { advancedScanImage } from '../utils/scannerUtils';
 
 export default function BatchProcessor({ queue, setQueue }) {
-  const [editingItem, setEditingItem]     = useState(null);
-  const [crop, setCrop]                   = useState(null);
+  const [editingItem, setEditingItem] = useState(null);
+  const [crop, setCrop] = useState(null);
   const [completedCrop, setCompletedCrop] = useState(null);
-  const [scanStatus, setScanStatus]       = useState('');
-  const [modalImg, setModalImg]           = useState(null);
-  const [autoProcess, setAutoProcess]     = useState(() => localStorage.getItem('psa_autoProcessing') === 'true');
+  const [scanStatus, setScanStatus] = useState('');
+  const [modalImg, setModalImg] = useState(null);
+  const [autoProcess, setAutoProcess] = useState(() => localStorage.getItem('psa_autoProcessing') === 'true');
   const imgRef = useRef(null);
 
   useEffect(() => {
-    if (autoProcess) {
-      const pending       = queue.filter(item => item.status === 'pending');
-      const cameraScanned = queue.filter(item => item.status === 'camera_scanned');
-      if (pending.length > 0) {
-        Promise.all(pending.map(item => processScan(item)));
-      }
-      cameraScanned.forEach(item => {
-        updateQueueItem(item.id, { status: 'process_backend' });
-        sendToBackend(item.id, item.barcode);
+    if (!autoProcess) return;
+
+    // Grab up to 2 items that need processing to avoid CPU deadlock
+    const toProcess = queue.filter(item =>
+      item.status === 'pending' || item.status === 'camera_scanned'
+    ).slice(0, 2);
+
+    if (toProcess.length > 0) {
+      toProcess.forEach(item => {
+        // Mark them as strictly 'scanning' or 'processing' immediately so the next render loop doesn't pick them up again
+        updateQueueItem(item.id, { status: item.status === 'camera_scanned' ? 'process_backend' : 'scanning' });
+
+        if (item.status === 'camera_scanned') {
+          sendToBackend(item.id, item.barcode);
+        } else {
+          processScan(item);
+        }
       });
     }
   }, [queue, autoProcess]);
@@ -60,7 +68,7 @@ export default function BatchProcessor({ queue, setQueue }) {
 
       while (true) {
         await new Promise(r => setTimeout(r, 2500));
-        const sRes  = await fetch(`${API_BASE}/status/${processId}`);
+        const sRes = await fetch(`${API_BASE}/status/${processId}`);
         const sData = await sRes.json();
         if (sData.status === 'complete') {
           updateQueueItem(id, { status: 'done', resultData: sData, barcode });
@@ -81,37 +89,13 @@ export default function BatchProcessor({ queue, setQueue }) {
   };
 
   // ── Scan logic ─────────────────────────────────────────────
-  const extractStrip = async (img, yPct, hPct) => {
-    const W = img.naturalWidth || img.width;
-    const H = img.naturalHeight || img.height;
-    const cvs = document.createElement('canvas');
-    cvs.width  = W;
-    cvs.height = Math.round(H * hPct);
-    const cx = cvs.getContext('2d');
-    cx.drawImage(img, 0, Math.round(H * yPct), W, cvs.height, 0, 0, W, cvs.height);
-    return new Promise(r => {
-      const si = new Image();
-      si.onload = () => r(si);
-      si.src = cvs.toDataURL('image/jpeg', 0.95);
-    });
-  };
-
   const processScan = async (item, overrideDataUrl = null) => {
     updateQueueItem(item.id, { status: 'scanning' });
     const img = new Image();
     img.src = overrideDataUrl || item.dataUrl;
     await new Promise(r => { img.onload = r; });
 
-    let result = null;
-    if (!overrideDataUrl) {
-      try { const topStrip = await extractStrip(img, 0.05, 0.42); result = await advancedScanImage(topStrip); } catch (_) {}
-      if (!result) {
-        try { const botStrip = await extractStrip(img, 0.53, 0.42); result = await advancedScanImage(botStrip); } catch (_) {}
-      }
-      if (!result) { result = await advancedScanImage(img); }
-    } else {
-      result = await advancedScanImage(img);
-    }
+    let result = await advancedScanImage(img);
 
     if (result) {
       updateQueueItem(item.id, { status: 'process_backend', barcode: result });
@@ -122,7 +106,7 @@ export default function BatchProcessor({ queue, setQueue }) {
   };
 
   // ── Crop editor ────────────────────────────────────────────
-  const openEditor  = (item) => {
+  const openEditor = (item) => {
     setEditingItem(item);
     setCrop({ unit: '%', x: 0, y: 8, width: 100, height: 40 });
     setCompletedCrop(null);
@@ -141,14 +125,14 @@ export default function BatchProcessor({ queue, setQueue }) {
       };
     }
     if (!targetCrop?.width || !imgRef.current) return editingItem.dataUrl;
-    const image  = imgRef.current;
+    const image = imgRef.current;
     const canvas = document.createElement('canvas');
-    const sx = image.naturalWidth  / image.width;
+    const sx = image.naturalWidth / image.width;
     const sy = image.naturalHeight / image.height;
     const PADDING = 40;
     const cropW = targetCrop.width * sx;
     const cropH = targetCrop.height * sy;
-    canvas.width  = cropW + (PADDING * 2);
+    canvas.width = cropW + (PADDING * 2);
     canvas.height = cropH + (PADDING * 2);
     const ctx = canvas.getContext('2d');
     ctx.fillStyle = '#FFFFFF';
@@ -169,7 +153,7 @@ export default function BatchProcessor({ queue, setQueue }) {
     const c = document.createElement('canvas');
     const ctx = c.getContext('2d');
     const img = imgRef.current;
-    c.width  = img.naturalHeight;
+    c.width = img.naturalHeight;
     c.height = img.naturalWidth;
     ctx.translate(c.width / 2, c.height / 2);
     ctx.rotate(Math.PI / 2);
@@ -177,7 +161,7 @@ export default function BatchProcessor({ queue, setQueue }) {
     setEditingItem({ ...editingItem, dataUrl: c.toDataURL('image/jpeg', 0.9) });
   };
 
-  const copyText = (text) => navigator.clipboard.writeText(text).catch(() => {});
+  const copyText = (text) => navigator.clipboard.writeText(text).catch(() => { });
 
   if (queue.length === 0) return null;
 
@@ -248,14 +232,14 @@ export default function BatchProcessor({ queue, setQueue }) {
 
 // ── Individual Queue Card ──────────────────────────────────────
 function QueueCard({ item, onOpenEditor, onProcessAsIs, onImageClick, onCopy }) {
-  const rd  = item.resultData;
+  const rd = item.resultData;
   const psa = rd?.psa;
-  const pc  = rd?.pricecharting;
-  const eb  = rd?.ebay;
+  const pc = rd?.pricecharting;
+  const eb = rd?.ebay;
 
-  const isDone    = item.status === 'done';
+  const isDone = item.status === 'done';
   const isPartial = item.status === 'partial';
-  const isError   = item.status === 'error';
+  const isError = item.status === 'error';
   const hasResult = (isDone || isPartial) && psa;
 
   const fmt = (v) => {
@@ -310,15 +294,15 @@ function QueueCard({ item, onOpenEditor, onProcessAsIs, onImageClick, onCopy }) 
             {item.file_name}
           </strong>
           <span style={{ fontSize: '0.73rem', color: isDone ? 'var(--success)' : isPartial ? 'var(--warning)' : isError ? 'var(--danger)' : '#888' }}>
-            {item.status === 'pending'         && '⏳ Waiting…'}
-            {item.status === 'scanning'        && '🔍 Scanning…'}
+            {item.status === 'pending' && '⏳ Waiting…'}
+            {item.status === 'scanning' && '🔍 Scanning…'}
             {item.status === 'process_backend' && '🌐 Fetching data…'}
-            {isDone                            && `✅ ${item.barcode}`}
-            {isPartial                         && `⚠️ Partial — ${item.barcode}`}
-            {isError                           && `❌ ${item.error}`}
+            {isDone && `✅ ${item.barcode}`}
+            {isPartial && `⚠️ Partial — ${item.barcode}`}
+            {isError && `❌ ${item.error}`}
           </span>
         </div>
-        {isDone    && <Badge label="Done"    bg="rgba(74,222,128,0.15)"  color="var(--success)" border="rgba(74,222,128,0.3)" />}
+        {isDone && <Badge label="Done" bg="rgba(74,222,128,0.15)" color="var(--success)" border="rgba(74,222,128,0.3)" />}
         {isPartial && <Badge label="Partial" bg="rgba(251,191,36,0.15)" color="var(--warning)" border="rgba(251,191,36,0.3)" />}
       </div>
 
@@ -337,9 +321,9 @@ function QueueCard({ item, onOpenEditor, onProcessAsIs, onImageClick, onCopy }) 
               </button>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 12px', marginBottom: '6px' }}>
-              <DataCell label="CERT #"     value={psa.cert_number}   accent copyable onCopy={onCopy} />
-              <DataCell label="GRADE"      value={psa.item_grade} />
-              <DataCell label="PSA EST."   value={psa.psa_estimate || '—'} />
+              <DataCell label="CERT #" value={psa.cert_number} accent copyable onCopy={onCopy} />
+              <DataCell label="GRADE" value={psa.item_grade} />
+              <DataCell label="PSA EST." value={psa.psa_estimate || '—'} />
               <DataCell label="POPULATION" value={psa.psa_population} />
             </div>
             {psa.latest_sale_price && (
@@ -350,9 +334,9 @@ function QueueCard({ item, onOpenEditor, onProcessAsIs, onImageClick, onCopy }) 
               </div>
             )}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
-              {psa.psa_url        && <Pill href={psa.psa_url}        label="PSA"       bg="#1e3a8a" />}
-              {eb?.listings_url   && <Pill href={eb.listings_url}    label="eBay Ask"  bg="#78350f" />}
-              {eb?.sold_url       && <Pill href={eb.sold_url}        label="eBay Sold" bg="#431407" />}
+              {psa.psa_url && <Pill href={psa.psa_url} label="PSA" bg="#1e3a8a" />}
+              {eb?.listings_url && <Pill href={eb.listings_url} label="eBay Ask" bg="#78350f" />}
+              {eb?.sold_url && <Pill href={eb.sold_url} label="eBay Sold" bg="#431407" />}
             </div>
           </div>
 
