@@ -41,23 +41,28 @@ function dataURLtoFile(dataurl, filename) {
   return new File([u8arr], filename, { type: mime });
 }
 
-/**
- * Convert any image element to a grayscale (B&W) canvas image element.
- * Applies: grayscale + high contrast + brightness boost.
- */
-function toBW(src, W, H) {
-  const cvs = document.createElement('canvas');
-  cvs.width  = W;
-  cvs.height = H;
-  const ctx = cvs.getContext('2d');
-  ctx.filter = 'grayscale(100%) contrast(1.8) brightness(1.1)';
-  ctx.drawImage(src, 0, 0, W, H);
-  return cvs;
+// Draw a region of imageElement onto canvas with a CSS filter
+function drawRegion(canvas, ctx, imageElement, rx, ry, rw, rh, sw, sh, filter, rotate90) {
+  if (rotate90) {
+    canvas.width  = sh;
+    canvas.height = sw;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.translate(sh / 2, sw / 2);
+    ctx.rotate(Math.PI / 2);
+    ctx.filter = filter;
+    ctx.drawImage(imageElement, rx, ry, rw, rh, -sw / 2, -sh / 2, sw, sh);
+  } else {
+    canvas.width  = sw;
+    canvas.height = sh;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.filter = filter;
+    ctx.drawImage(imageElement, rx, ry, rw, rh, 0, 0, sw, sh);
+  }
 }
 
 async function tryScanZxing(canvas) {
   try {
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
     const result  = await reader.decodeFromImageUrl(dataUrl);
     if (result && result.getText()) return result.getText();
   } catch (_) {}
@@ -66,7 +71,7 @@ async function tryScanZxing(canvas) {
 
 async function tryScanHtml5(canvas) {
   try {
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
     const file    = dataURLtoFile(dataUrl, 'scan.jpg');
     const result  = await getScanner().scanFile(file, true);
     if (result) return result;
@@ -75,20 +80,17 @@ async function tryScanHtml5(canvas) {
 }
 
 /**
- * Scan an <img> element.
- *
- * Strategy:
- *  1. Native BarcodeDetector (hardware — fastest)
- *  2. Convert FULL image to B&W (grayscale + high contrast)
- *  3. Scan Top→Bottom strip (full width, y: 0%–50%)
- *  4. Scan Bottom→Top strip (full width, y: 50%–100%)
- *  5. Scan Full image (full width, full height)
- *  6. Rotate 90° and repeat steps 3-5 (sideways photos)
- *  7. Html5Qrcode on top strip B&W (robust fallback)
+ * Main export — scans an <img> element.
+ * Strategy (fast → thorough):
+ *   1. Native BarcodeDetector (hardware, instant)
+ *   2. Top 40% strip — where PSA barcode always lives
+ *   3. Full image (in case barcode is elsewhere)
+ *   4. Same regions rotated 90° (sideways photos)
+ *   5. Html5Qrcode on top-40% (robust fallback)
  */
 export async function advancedScanImage(imageElement) {
 
-  // ── 1. Native hardware detection (fastest on Android Chrome / iOS 17) ──
+  // ── 1. Native (fastest on supported devices) ──
   if ('BarcodeDetector' in window) {
     try {
       const detector = new window.BarcodeDetector({
@@ -106,79 +108,71 @@ export async function advancedScanImage(imageElement) {
   const H = imageElement.naturalHeight || imageElement.height || 0;
   if (!W || !H) return null;
 
-  // ── 2. Convert entire image to B&W with high contrast ──
-  // Scale down so ZXing doesn't choke on giant images
-  const scale = Math.min(1, 1200 / Math.max(W, H));
-  const SW    = Math.round(W * scale);
-  const SH    = Math.round(H * scale);
+  const isCroppedStrip = (W / H > 2.5) || (H / W > 2.5);
 
-  const bwFull = toBW(imageElement, SW, SH);
+  // ── Regions ──
+  // For a normal PSA photo: barcode is always in the top 35-40% of the image.
+  // We check Top-40% first (most likely), then full image.
+  const regions = isCroppedStrip
+    ? [{ name: 'Full (Crop)', rx: 0, ry: 0, rw: W, rh: H }]
+    : [
+        { name: 'PSA Label Zone', rx: 0, ry: H * 0.05, rw: W, rh: H * 0.45 }, // 5%-50% — where label sits
+        { name: 'Top 40%',        rx: 0, ry: 0,        rw: W, rh: H * 0.40 }, // in case label is at very top
+        { name: 'Full',           rx: 0, ry: 0,        rw: W, rh: H        },
+        { name: 'Bottom 40%',     rx: 0, ry: H * 0.60, rw: W, rh: H * 0.40 }, // upside-down cards
+      ];
 
-  // ── 3-5. Scan regions from B&W full canvas ──
-  const regions = [
-    { name: 'Top 50%',    sx: 0, sy: 0,          sw: SW, sh: Math.round(SH * 0.50) },
-    { name: 'Bottom 50%', sx: 0, sy: Math.round(SH * 0.50), sw: SW, sh: Math.round(SH * 0.50) },
-    { name: 'Full',       sx: 0, sy: 0,          sw: SW, sh: SH },
-  ];
+  // contrast filter: skip for already-cropped strips (avoid double-processing)
+  const filters = isCroppedStrip
+    ? ['none']
+    : ['none', 'grayscale(100%) contrast(1.6) brightness(1.1)'];
 
-  const regionCanvas = document.createElement('canvas');
-  const rCtx = regionCanvas.getContext('2d', { willReadFrequently: true });
+  const canvas = document.createElement('canvas');
+  const ctx    = canvas.getContext('2d', { willReadFrequently: true });
 
-  for (const r of regions) {
-    regionCanvas.width  = r.sw;
-    regionCanvas.height = r.sh;
-    rCtx.setTransform(1, 0, 0, 1, 0, 0);
-    rCtx.filter = 'none';
-    rCtx.drawImage(bwFull, r.sx, r.sy, r.sw, r.sh, 0, 0, r.sw, r.sh);
+  // ── 2 & 3. ZXing: horizontal then rotated 90° per region ──
+  for (const region of regions) {
+    const { rx, ry, rw, rh } = region;
+    const scale = Math.min(1, 1200 / Math.max(rw, rh));
+    const sw = Math.round(rw * scale);
+    const sh = Math.round(rh * scale);
 
-    let res = await tryScanZxing(regionCanvas);
-    if (res) { console.log(`[ZXing B&W] ${r.name}`); return res; }
+    for (const filter of filters) {
+      // Horizontal
+      drawRegion(canvas, ctx, imageElement, rx, ry, rw, rh, sw, sh, filter, false);
+      let res = await tryScanZxing(canvas);
+      if (res) { console.log(`[ZXing] ${region.name} H ${filter}`); return res; }
+
+      // Rotated 90° (sideways photo)
+      drawRegion(canvas, ctx, imageElement, rx, ry, rw, rh, sw, sh, filter, true);
+      res = await tryScanZxing(canvas);
+      if (res) { console.log(`[ZXing] ${region.name} 90° ${filter}`); return res; }
+    }
   }
 
-  // ── 6. Rotate 90° (sideways photos) and repeat ──
-  const bwRot = document.createElement('canvas');
-  bwRot.width  = SH;
-  bwRot.height = SW;
-  const rCtx2 = bwRot.getContext('2d');
-  rCtx2.translate(SH / 2, SW / 2);
-  rCtx2.rotate(Math.PI / 2);
-  rCtx2.drawImage(bwFull, -SW / 2, -SH / 2);
+  // ── 4. Html5Qrcode fallback on top 40% ──
+  console.log('[Scanner] Html5Qrcode fallback');
+  const fScale = Math.min(1, 1000 / Math.max(W, H * 0.4));
+  const fW = Math.round(W * fScale);
+  const fH = Math.round(H * 0.4 * fScale);
+  canvas.width  = fW;
+  canvas.height = fH;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.filter = 'none';
+  ctx.drawImage(imageElement, 0, 0, W, H * 0.4, 0, 0, fW, fH);
+  let res = await tryScanHtml5(canvas);
+  if (res) { console.log('[Html5Qrcode] Top 40% hit'); return res; }
 
-  const rotRegions = [
-    { name: 'Rot Top 50%',    sx: 0, sy: 0,                    sw: SH, sh: Math.round(SW * 0.50) },
-    { name: 'Rot Bottom 50%', sx: 0, sy: Math.round(SW * 0.50), sw: SH, sh: Math.round(SW * 0.50) },
-    { name: 'Rot Full',       sx: 0, sy: 0,                    sw: SH, sh: SW },
-  ];
+  // Html5Qrcode on full image
+  const fScaleFull = Math.min(1, 1000 / Math.max(W, H));
+  canvas.width  = Math.round(W * fScaleFull);
+  canvas.height = Math.round(H * fScaleFull);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.filter = 'none';
+  ctx.drawImage(imageElement, 0, 0, canvas.width, canvas.height);
+  res = await tryScanHtml5(canvas);
+  if (res) { console.log('[Html5Qrcode] Full image hit'); return res; }
 
-  for (const r of rotRegions) {
-    regionCanvas.width  = r.sw;
-    regionCanvas.height = r.sh;
-    rCtx.setTransform(1, 0, 0, 1, 0, 0);
-    rCtx.filter = 'none';
-    rCtx.drawImage(bwRot, r.sx, r.sy, r.sw, r.sh, 0, 0, r.sw, r.sh);
-
-    let res = await tryScanZxing(regionCanvas);
-    if (res) { console.log(`[ZXing B&W Rotated] ${r.name}`); return res; }
-  }
-
-  // ── 7. Html5Qrcode fallback on B&W top-half ──
-  console.log('[Scanner] Html5Qrcode fallback on B&W');
-  regionCanvas.width  = SW;
-  regionCanvas.height = Math.round(SH * 0.50);
-  rCtx.setTransform(1, 0, 0, 1, 0, 0);
-  rCtx.filter = 'none';
-  rCtx.drawImage(bwFull, 0, 0, SW, Math.round(SH * 0.50), 0, 0, SW, regionCanvas.height);
-  let res = await tryScanHtml5(regionCanvas);
-  if (res) { console.log('[Html5Qrcode] B&W Top hit'); return res; }
-
-  // Html5Qrcode on full B&W
-  regionCanvas.width  = SW;
-  regionCanvas.height = SH;
-  rCtx.setTransform(1, 0, 0, 1, 0, 0);
-  rCtx.drawImage(bwFull, 0, 0, SW, SH);
-  res = await tryScanHtml5(regionCanvas);
-  if (res) { console.log('[Html5Qrcode] B&W Full hit'); return res; }
-
-  console.log('[Scanner] All paths exhausted');
+  console.log('[Scanner] All paths failed');
   return null;
 }

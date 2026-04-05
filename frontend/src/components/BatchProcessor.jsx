@@ -81,13 +81,37 @@ export default function BatchProcessor({ queue, setQueue }) {
   };
 
   // ── Scan logic ─────────────────────────────────────────────
+  const extractStrip = async (img, yPct, hPct) => {
+    const W = img.naturalWidth || img.width;
+    const H = img.naturalHeight || img.height;
+    const cvs = document.createElement('canvas');
+    cvs.width  = W;
+    cvs.height = Math.round(H * hPct);
+    const cx = cvs.getContext('2d');
+    cx.drawImage(img, 0, Math.round(H * yPct), W, cvs.height, 0, 0, W, cvs.height);
+    return new Promise(r => {
+      const si = new Image();
+      si.onload = () => r(si);
+      si.src = cvs.toDataURL('image/jpeg', 0.95);
+    });
+  };
+
   const processScan = async (item, overrideDataUrl = null) => {
     updateQueueItem(item.id, { status: 'scanning' });
     const img = new Image();
     img.src = overrideDataUrl || item.dataUrl;
     await new Promise(r => { img.onload = r; });
 
-    let result = await advancedScanImage(img);
+    let result = null;
+    if (!overrideDataUrl) {
+      try { const topStrip = await extractStrip(img, 0.05, 0.42); result = await advancedScanImage(topStrip); } catch (_) {}
+      if (!result) {
+        try { const botStrip = await extractStrip(img, 0.53, 0.42); result = await advancedScanImage(botStrip); } catch (_) {}
+      }
+      if (!result) { result = await advancedScanImage(img); }
+    } else {
+      result = await advancedScanImage(img);
+    }
 
     if (result) {
       updateQueueItem(item.id, { status: 'process_backend', barcode: result });
