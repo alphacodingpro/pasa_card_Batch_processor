@@ -92,6 +92,22 @@ export default function BatchProcessor({ queue, setQueue }) {
   };
 
   // ── Scan logic ─────────────────────────────────────────────
+  // Helper: extract a horizontal strip from an image as a new Image element
+  const extractStrip = async (img, yPct, hPct) => {
+    const W = img.naturalWidth || img.width;
+    const H = img.naturalHeight || img.height;
+    const cvs = document.createElement('canvas');
+    cvs.width  = W;
+    cvs.height = Math.round(H * hPct);
+    const cx = cvs.getContext('2d');
+    cx.drawImage(img, 0, Math.round(H * yPct), W, cvs.height, 0, 0, W, cvs.height);
+    return new Promise(r => {
+      const si = new Image();
+      si.onload = () => r(si);
+      si.src = cvs.toDataURL('image/jpeg', 0.95);
+    });
+  };
+
   const processScan = async (item, overrideDataUrl = null) => {
     updateQueueItem(item.id, { status: 'scanning' });
 
@@ -99,35 +115,37 @@ export default function BatchProcessor({ queue, setQueue }) {
     img.src = overrideDataUrl || item.dataUrl;
     await new Promise(r => { img.onload = r; });
 
-    // Pre-crop the top label strip (y:8%, h:40%) — same as manual crop box
-    // This is why manual crop works instantly: scanner sees only the barcode area
-    let scanTarget = img;
+    let result = null;
+
     if (!overrideDataUrl) {
+      // Pass 1: Top strip (y: 5% → 47%) — standard upright PSA
       try {
-        const cvs = document.createElement('canvas');
-        const W = img.naturalWidth || img.width;
-        const H = img.naturalHeight || img.height;
-        const stripY = Math.round(H * 0.08);
-        const stripH = Math.round(H * 0.42);
-        cvs.width  = W;
-        cvs.height = stripH;
-        const cx = cvs.getContext('2d');
-        cx.drawImage(img, 0, stripY, W, stripH, 0, 0, W, stripH);
-        const stripImg = new Image();
-        await new Promise(r => {
-          stripImg.onload = r;
-          stripImg.src = cvs.toDataURL('image/jpeg', 0.95);
-        });
-        scanTarget = stripImg;
-      } catch (_) { scanTarget = img; }
+        const topStrip = await extractStrip(img, 0.05, 0.42);
+        result = await advancedScanImage(topStrip);
+      } catch (_) {}
+
+      // Pass 2: Bottom strip (y: 53% → 95%) — upside-down / inverted PSA
+      if (!result) {
+        try {
+          const botStrip = await extractStrip(img, 0.53, 0.42);
+          result = await advancedScanImage(botStrip);
+        } catch (_) {}
+      }
+
+      // Pass 3: Full image fallback
+      if (!result) {
+        result = await advancedScanImage(img);
+      }
+    } else {
+      // Override (manual crop) — scan directly
+      result = await advancedScanImage(img);
     }
 
-    const result = await advancedScanImage(scanTarget);
     if (result) {
       updateQueueItem(item.id, { status: 'process_backend', barcode: result });
       await sendToBackend(item.id, result);
     } else {
-      updateQueueItem(item.id, { status: 'error', error: 'Barcode not found. Please scan manually.' });
+      updateQueueItem(item.id, { status: 'error', error: 'Barcode not found. Retry or check image.' });
     }
   };
 
@@ -402,11 +420,8 @@ function QueueCard({ item, onOpenEditor, onProcessAsIs, onImageClick, onCopy }) 
       {/* ── Action Buttons ─────── */}
       {(item.status === 'pending' || item.status === 'error') && (
         <div style={{ display: 'flex', gap: '8px', padding: '0 12px 12px' }}>
-          <button className="modern-btn" style={{ flex: 1, padding: '9px 12px', fontSize: '0.85rem', background: 'rgba(255,255,255,0.07)', color: '#fff' }} onClick={onOpenEditor}>
-            ✂️ Crop & Scan
-          </button>
           <button className="modern-btn primary-btn" style={{ flex: 1, padding: '9px 12px', fontSize: '0.85rem' }} onClick={onProcessAsIs}>
-            🚀 Process As Is
+            🔄 Retry Scan
           </button>
         </div>
       )}
