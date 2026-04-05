@@ -333,7 +333,7 @@ function QueueCard({ item, onOpenEditor, onProcessAsIs, onImageClick, onCopy }) 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 12px', marginBottom: '6px' }}>
               <DataCell label="CERT #" value={psa.cert_number} accent copyable onCopy={onCopy} />
               <DataCell label="GRADE" value={psa.item_grade} />
-              <DataCell label="PSA EST." value={psa.psa_estimate || '—'} />
+              <DataCell label="PSA EST." value={psa.psa_estimate || '—'} accent={!!psa.psa_estimate} />
               <DataCell label="POPULATION" value={psa.psa_population} />
             </div>
             {psa.latest_sale_price && (
@@ -357,9 +357,16 @@ function QueueCard({ item, onOpenEditor, onProcessAsIs, onImageClick, onCopy }) 
           {pc ? (
             <div>
               <SectionLabel>PriceCharting</SectionLabel>
-              <div style={{ color: '#666', fontSize: '0.64rem', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '3px 0 6px' }}>Market Summary</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', margin: '3px 0 6px' }}>
+                <div style={{ color: '#666', fontSize: '0.64rem', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Market Summary</div>
+                {pc.sales_velocity && (
+                  <div style={{ color: '#4ade80', fontSize: '0.68rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '3px' }}>
+                    <span style={{ fontSize: '0.8rem' }}>⚡</span> {pc.sales_velocity}
+                  </div>
+                )}
+              </div>
 
-              {pc.psa9_summary?.price && (
+              {pc.psa9_summary?.price != null && (
                 <div style={{ display: 'flex', alignItems: 'center', marginBottom: '5px' }}>
                   <div style={{ width: '44px', flexShrink: 0 }}>
                     <div style={{ color: '#666', fontSize: '0.62rem', textTransform: 'uppercase' }}>GRADE</div>
@@ -377,7 +384,7 @@ function QueueCard({ item, onOpenEditor, onProcessAsIs, onImageClick, onCopy }) 
                 </div>
               )}
 
-              {pc.psa10_summary?.price && (
+              {pc.psa10_summary?.price != null && (
                 <div style={{ display: 'flex', alignItems: 'center', marginBottom: '7px' }}>
                   <div style={{ width: '44px', flexShrink: 0 }}>
                     <div style={{ color: '#666', fontSize: '0.62rem', textTransform: 'uppercase' }}>PSA</div>
@@ -395,7 +402,9 @@ function QueueCard({ item, onOpenEditor, onProcessAsIs, onImageClick, onCopy }) 
                 </div>
               )}
 
-              {pc.pricecharting_url && <Pill href={pc.pricecharting_url} label="PriceCharting" bg="#14532d" />}
+              <div style={{ display: 'flex', gap: '5px', marginTop: '4px' }}>
+                {pc.pricecharting_url && <Pill href={pc.pricecharting_url} label="PriceCharting" bg="#14532d" />}
+              </div>
             </div>
           ) : isPartial && (
             <div style={{ color: '#666', fontSize: '0.76rem' }}>⚠️ No PriceCharting data found.</div>

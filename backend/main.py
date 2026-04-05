@@ -190,9 +190,13 @@ def parse_psa_markdown(md: str, psa_url: str = "") -> dict:
 
         # PSA Estimate
         if not result["psa_estimate"]:
-            m = re.search(r'PSA (?:SMR|Estimate)\s*[:\|]?\s*(\$[\d,\.]+)', s)
+            m = re.search(r'(?:PSA )?(?:SMR|Estimate|Price Guide)\s*[:\|]?\s*(\$[\d,\.]+)', s, re.IGNORECASE)
             if m:
                 result["psa_estimate"] = m.group(1)
+            elif 'Price Guide' in s or 'SMR Price' in s:
+                nxt = next_nonempty(i)
+                if nxt and '$' in nxt:
+                    result["psa_estimate"] = nxt
 
     # ── Latest sale: $price + date pattern ──────────────────
     sale_matches = re.findall(
@@ -250,9 +254,8 @@ def parse_pc_markdown(md: str, pc_url: str = "") -> dict:
     Spec-compliant:
       - Title   : first H1, strip '#', replace \\# with #, remove trailing link block
       - PC URL  : outer href from [![img](img_url)](page_url)
-      - Image   : inner src from same block
-      - Table   : header 'Ungraded | Grade 7 | Grade 8 | Grade 9 | Grade 9.5 | PSA 10'
-                  col-index 4 = Grade 9, col-index 6 = PSA 10 (pipe-split)
+      - Image   : prioritized card thumbnail from Firecrawl markdown
+      - Table   : dynamic header matching for Grade 9 and PSA 10
     """
     result = {
         "title":             None,
@@ -260,10 +263,13 @@ def parse_pc_markdown(md: str, pc_url: str = "") -> dict:
         "image_url":         None,
         "psa9_summary":      {},
         "psa10_summary":     {},
+        "sales_velocity":    None,
     }
 
+    lines = md.split('\n')
+
     # ── Title ──────────────────────────────────────────
-    for line in md.split('\n'):
+    for line in lines:
         s = line.strip()
         if s.startswith('# '):
             raw_title = s[2:].strip()
@@ -274,67 +280,89 @@ def parse_pc_markdown(md: str, pc_url: str = "") -> dict:
             result["title"] = raw_title
             break
 
-    # ── PriceCharting URL + Image ───────────────────────
-    # Find ALL [![alt](inner)](outer) blocks, prefer card image from storage.googleapis
-    all_img_links = re.findall(
-        r'\[!\[.*?\]\((https?://[^\)]+)\)\]\((https?://[^\)]+)\)',
-        md
-    )
-    pc_page_url = None
-    card_img_url = None
+    # ── Preferred Card Image ───────────────────────────
+    # We look for images in a prioritized way:
+    # 1. Images with "alternate" or "alt art" in alt text (if title has it)
+    # 2. First image that is NOT a logo or app icon
+    # 3. First image from storage.googleapis.com (PriceCharting Card Storage)
+    
+    img_matches = re.findall(r'!\[(.*?)\]\((https?://[^\)]+)\)', md)
+    best_img = None
+    for alt, url in img_matches:
+        alt_l = alt.lower()
+        url_l = url.lower()
+        # Skip small icons/logos
+        if any(x in url_l for x in ['logo', 'icon', 'sprite', 'avatar', 'apple-touch']):
+            continue
+        # High priority: storage.googleapis is PriceCharting's own card image host
+        if 'storage.googleapis' in url_l:
+            best_img = url
+            break
+        # Medium priority: matches title keywords
+        if result["title"] and any(word in alt_l for word in result["title"].lower().split()[:3]):
+            best_img = url
+            # don't break, keep looking for googleapis
+        
+        if not best_img:
+            best_img = url
 
-    for inner, outer in all_img_links:
-        if 'pricecharting.com' in outer and not pc_page_url:
-            pc_page_url = outer
-        # Always prefer card image from storage.googleapis (overrides set logo)
-        if 'storage.googleapis' in inner:
-            card_img_url = inner
-        elif not card_img_url:
-            card_img_url = inner
+    result["image_url"] = best_img
 
-    if pc_page_url:
-        result["pricecharting_url"] = pc_page_url
-    if card_img_url:
-        result["image_url"] = card_img_url
-    elif not card_img_url:
-        img_m = re.search(r'!\[.*?\]\((https?://[^\)]+)\)', md)
-        if img_m:
-            result["image_url"] = img_m.group(1)
+    # ── Sales Velocity ──────────────────────────────────
+    # Look for patterns like "[1 sale per day]" or "1.2 sales per month"
+    vel_m = re.search(r'\[?(\d+(?:\.\d+)?\s+sales?\s+per\s+\w+)\]?', md, re.IGNORECASE)
+    if vel_m:
+        result["sales_velocity"] = vel_m.group(1).strip()
 
-    # ── Price Table ─────────────────────────────────────
-    lines = md.split('\n')
+    # ── Dynamic Price Table ─────────────────────────────
     header_idx = None
+    headers = []
     for i, line in enumerate(lines):
-        if 'Ungraded' in line and 'Grade 9' in line and 'PSA 10' in line:
+        if 'Ungraded' in line and ('Grade 9' in line or 'PSA 9' in line or 'PSA 10' in line):
             header_idx = i
+            headers = [h.strip() for h in line.split('|')]
             break
 
     if header_idx is not None:
-        data_start = header_idx + 2  # skip separator row
-        price_row  = None
+        # Find column indices
+        idx_9 = None
+        idx_10 = None
+        for idx, h in enumerate(headers):
+            if 'Grade 9' in h or 'PSA 9' in h:
+                idx_9 = idx
+            elif 'PSA 10' in h:
+                idx_10 = idx
+
+        data_start = header_idx + 2
+        price_row = None
         volume_row = None
 
         for line in lines[data_start : data_start + 15]:
             s = line.strip()
             if not s.startswith('|'):
-                break
+                continue
             cells = [c.strip() for c in s.split('|')]
-            # cells[0] empty (leading pipe), cells[1..] = cols
-            # col idx 4 = Grade 9, col idx 6 = PSA 10
+            
             if 'volume:' in s.lower():
                 volume_row = cells
             elif price_row is None and '$' in s:
                 price_row = cells
 
-        if price_row and len(price_row) >= 7:
-            g9_price,  g9_change  = _parse_price_cell(price_row[4])
-            g10_price, g10_change = _parse_price_cell(price_row[6])
-            result["psa9_summary"]  = {"price": g9_price,  "change": g9_change}
-            result["psa10_summary"] = {"price": g10_price, "change": g10_change}
+        # Map Grade 9
+        if idx_9 is not None and idx_9 < len(price_row if price_row else []):
+            p, c = _parse_price_cell(price_row[idx_9])
+            result["psa9_summary"]["price"] = p
+            result["psa9_summary"]["change"] = c
+            if volume_row and idx_9 < len(volume_row):
+                result["psa9_summary"]["volume_display"] = _parse_volume_cell(volume_row[idx_9])
 
-        if volume_row and len(volume_row) >= 7:
-            result["psa9_summary"]["volume_display"]  = _parse_volume_cell(volume_row[4])
-            result["psa10_summary"]["volume_display"] = _parse_volume_cell(volume_row[6])
+        # Map PSA 10
+        if idx_10 is not None and idx_10 < len(price_row if price_row else []):
+            p, c = _parse_price_cell(price_row[idx_10])
+            result["psa10_summary"]["price"] = p
+            result["psa10_summary"]["change"] = c
+            if volume_row and idx_10 < len(volume_row):
+                result["psa10_summary"]["volume_display"] = _parse_volume_cell(volume_row[idx_10])
 
     return result
 
